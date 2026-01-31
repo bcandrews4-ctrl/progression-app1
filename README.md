@@ -41,3 +41,17 @@ iOS integration steps.
 
 `GymProgressionMobile/` is the native mobile app project (React Native).
 See `GymProgressionMobile/README.md` for setup and HealthKit sync steps.
+
+## Supabase Auth + User Data
+
+This app now supports individual account creation using Supabase.
+
+### Setup
+1. Create a Supabase project.
+2. In the Supabase SQL editor, run `supabase/schema.sql`.
+3. In your `.env.local`, set:
+   - `VITE_SUPABASE_URL=...`
+   - `VITE_SUPABASE_ANON_KEY=...`
+4. Rebuild/redeploy the app.
+
+New users start with zeroed data for workouts and health metrics.

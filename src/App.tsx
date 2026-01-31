@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   LineChart,
@@ -15,6 +15,7 @@ import {
 } from "recharts";
 
 import { colors, radii, shadows, gradients, typography } from "./styles/tokens";
+import { supabase } from "./lib/supabase";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -363,6 +364,31 @@ function buildSampleData() {
     });
   }
 
+  return { focus, lifts, cardio, runs, imported, health };
+}
+
+function buildEmptyData() {
+  const focus: TrainingFocus = "HYBRID";
+  const lifts: LiftEntry[] = [];
+  const cardio: CardioEntry[] = [];
+  const runs: RunEntry[] = [];
+  const imported: ImportedWorkout[] = [];
+  const health: HealthMetric[] = [];
+  const today = new Date();
+  for (let i = 0; i < 30; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const iso = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    health.push({
+      dateISO: iso,
+      steps: 0,
+      sleepHours: 0,
+      avgBPM: 0,
+      caloriesBurned: 0,
+      activeMinutes: 0,
+      sleepStages: [],
+    });
+  }
   return { focus, lifts, cardio, runs, imported, health };
 }
 
@@ -874,19 +900,27 @@ function GroupedCardioRow({
   );
 }
 
-function App() {
-  const sample = useMemo(() => buildSampleData(), []);
+type UserData = ReturnType<typeof buildEmptyData>;
 
-  const [authed, setAuthed] = useState<boolean>(true);
+function App() {
+  const emptyData = useMemo(() => buildEmptyData(), []);
+
+  const [session, setSession] = useState<null | { user: { id: string } }>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const saveTimeoutRef = useRef<number | null>(null);
   const [tab, setTab] = useState<AppTab>("Overview");
-  const [focus, setFocus] = useState<TrainingFocus>(sample.focus);
+  const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("90");
 
-  const [lifts, setLifts] = useState<LiftEntry[]>(sample.lifts);
-  const [cardio, setCardio] = useState<CardioEntry[]>(sample.cardio);
-  const [runs, setRuns] = useState<RunEntry[]>(sample.runs);
-  const [imported, setImported] = useState<ImportedWorkout[]>(sample.imported);
-  const [healthData, setHealthData] = useState<HealthMetric[]>(sample.health);
+  const [lifts, setLifts] = useState<LiftEntry[]>(emptyData.lifts);
+  const [cardio, setCardio] = useState<CardioEntry[]>(emptyData.cardio);
+  const [runs, setRuns] = useState<RunEntry[]>(emptyData.runs);
+  const [imported, setImported] = useState<ImportedWorkout[]>(emptyData.imported);
+  const [healthData, setHealthData] = useState<HealthMetric[]>(emptyData.health);
   const [healthPeriod, setHealthPeriod] = useState<HealthPeriod>("Daily");
 
   const [journalTab, setJournalTab] = useState<JournalTab>("All");
@@ -902,9 +936,109 @@ function App() {
 
   const [modal, setModal] = useState<null | { type: "ADD" | "LIFT" | "CARDIO" | "RUN" }>(null);
 
-  // --- Auth (mock)
+  // --- Auth & Onboarding
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [onboardingStep, setOnboardingStep] = useState<"login" | "step1" | "step2" | "step3">("login");
+  const [onboardingData, setOnboardingData] = useState({
+    name: "",
+    age: "",
+    email: "",
+    password: "",
+    goal: "HYBRID" as TrainingFocus,
+  });
+
+  const applyUserData = (data: UserData) => {
+    setFocus(data.focus);
+    setLifts(data.lifts);
+    setCardio(data.cardio);
+    setRuns(data.runs);
+    setImported(data.imported);
+    setHealthData(data.health);
+  };
+
+  const buildUserData = (): UserData => ({
+    focus,
+    lifts,
+    cardio,
+    runs,
+    imported,
+    health: healthData,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session ? { user: { id: data.session.user.id } } : null);
+      setSessionLoading(false);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession ? { user: { id: nextSession.user.id } } : null);
+      setSessionLoading(false);
+    });
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) {
+      setDataLoaded(false);
+      applyUserData(emptyData);
+      return;
+    }
+
+    let cancelled = false;
+    const loadProfile = async () => {
+      setDataLoaded(false);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("data")
+        .eq("id", userId)
+        .single();
+
+      if (cancelled) return;
+
+      if (error || !data?.data) {
+        const defaultData = buildEmptyData();
+        await supabase.from("profiles").upsert({ id: userId, data: defaultData });
+        applyUserData(defaultData);
+      } else {
+        applyUserData(data.data as UserData);
+      }
+      setDataLoaded(true);
+    };
+
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || !dataLoaded) return;
+
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      await supabase.from("profiles").update({ data: buildUserData() }).eq("id", userId);
+    }, 800);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded]);
 
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
@@ -1301,34 +1435,324 @@ function App() {
   const [healthConnect, setHealthConnect] = useState(false);
 
   // --- AUTH UI
-  if (!authed) {
+  const authed = !!session?.user;
+
+  if (sessionLoading) {
     return (
-      <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-        <div className="mx-auto max-w-md px-5 pt-16 pb-28">
-          <div className="text-3xl font-bold">Hybrid House</div>
-          <div className="mt-2" style={{ color: MUTED }}>
-            Journal + Progress
-          </div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        <div className="text-center">
+          <div className="text-lg" style={{ color: MUTED }}>Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
-          <div className="mt-10 space-y-4">
-            <Input label="Email" value={email} onChange={setEmail} placeholder="you@email.com" />
-            <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
-            <PrimaryButton onClick={() => setAuthed(true)} disabled={!email || !password}>
-              Login
-            </PrimaryButton>
-            <button
-              className="w-full rounded-2xl py-3"
-              style={{ border: `1px solid ${BORDER}`, color: TEXT }}
-              onClick={() => setAuthed(true)}
-            >
-              Create account
-            </button>
-          </div>
+  const handleLogin = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    setAuthMessage(null);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAuthError(error.message);
+    }
+    setAuthLoading(false);
+  };
 
-          <div className="mt-10 text-xs" style={{ color: MUTED }}>
-            By continuing, you agree to the Terms & Privacy.
+  const handleSignup = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    setAuthMessage(null);
+    const { data, error } = await supabase.auth.signUp({ 
+      email: onboardingData.email, 
+      password: onboardingData.password 
+    });
+    if (error) {
+      setAuthError(error.message);
+      setAuthLoading(false);
+      return;
+    }
+    if (data.user) {
+      const defaultData = buildEmptyData();
+      defaultData.focus = onboardingData.goal;
+      await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+      setOnboardingStep("step3");
+    }
+    setAuthLoading(false);
+  };
+
+  const handleOnboardingNext = () => {
+    if (onboardingStep === "step1") {
+      if (!onboardingData.name || !onboardingData.age || !onboardingData.email || !onboardingData.password) {
+        setAuthError("Please fill in all fields");
+        return;
+      }
+      setOnboardingStep("step2");
+    } else if (onboardingStep === "step2") {
+      handleSignup();
+    }
+  };
+
+  if (!authed) {
+    // Login screen for existing users
+    if (onboardingStep === "login") {
+      return (
+        <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
+          <div className="mx-auto max-w-md px-6 pt-20 pb-32">
+            <div className="text-4xl font-bold mb-2">Hybrid House</div>
+            <div className="text-sm mb-12" style={{ color: MUTED }}>
+              Journal + Progress
+            </div>
+
+            <div className="space-y-5">
+              <Input label="Email" value={email} onChange={setEmail} placeholder="you@email.com" />
+              <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
+              <PrimaryButton onClick={handleLogin} disabled={!email || !password || authLoading}>
+                {authLoading ? "Signing in..." : "Login"}
+              </PrimaryButton>
+              {authError && (
+                <div className="text-sm text-center" style={{ color: "rgba(255,120,120,0.9)" }}>
+                  {authError}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 text-center">
+              <button
+                onClick={() => setOnboardingStep("step1")}
+                className="text-sm"
+                style={{ color: ACCENT }}
+              >
+                Create new account →
+              </button>
+            </div>
           </div>
         </div>
+      );
+    }
+
+    // Step 1: Name, Age, Email, Password
+    if (onboardingStep === "step1") {
+      return (
+        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
+          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
+            <button
+              onClick={() => setOnboardingStep("login")}
+              className="mb-8 text-black"
+            >
+              ← Back
+            </button>
+            
+            <div className="mb-2">
+              <div className="h-1 w-12 rounded-full" style={{ background: "#E5E5E5" }}></div>
+            </div>
+
+            <h1 className="text-3xl font-bold mb-2">Let's get started</h1>
+            <p className="text-base mb-10" style={{ color: "#666666" }}>
+              We'll use this to personalize your experience.
+            </p>
+
+            <div className="space-y-5 mb-10">
+              <div>
+                <label className="block text-sm font-semibold mb-2.5">Name</label>
+                <input
+                  type="text"
+                  value={onboardingData.name}
+                  onChange={(e) => setOnboardingData({ ...onboardingData, name: e.target.value })}
+                  placeholder="Enter your name"
+                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  style={{ 
+                    background: "#F9F9F9",
+                    borderColor: "#E5E5E5",
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2.5">Age</label>
+                <input
+                  type="number"
+                  value={onboardingData.age}
+                  onChange={(e) => setOnboardingData({ ...onboardingData, age: e.target.value })}
+                  placeholder="Enter your age"
+                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  style={{ 
+                    background: "#F9F9F9",
+                    borderColor: "#E5E5E5",
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2.5">Email</label>
+                <input
+                  type="email"
+                  value={onboardingData.email}
+                  onChange={(e) => setOnboardingData({ ...onboardingData, email: e.target.value })}
+                  placeholder="you@email.com"
+                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  style={{ 
+                    background: "#F9F9F9",
+                    borderColor: "#E5E5E5",
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2.5">Password</label>
+                <input
+                  type="password"
+                  value={onboardingData.password}
+                  onChange={(e) => setOnboardingData({ ...onboardingData, password: e.target.value })}
+                  placeholder="••••••••"
+                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  style={{ 
+                    background: "#F9F9F9",
+                    borderColor: "#E5E5E5",
+                  }}
+                />
+              </div>
+            </div>
+
+            {authError && (
+              <div className="text-sm text-center mb-4" style={{ color: "rgba(255,120,120,0.9)" }}>
+                {authError}
+              </div>
+            )}
+
+            <button
+              onClick={handleOnboardingNext}
+              disabled={authLoading}
+              className="w-full rounded-3xl py-4 font-semibold text-white disabled:opacity-50 transition-all"
+              style={{ 
+                background: authLoading ? "#999999" : ACCENT,
+                boxShadow: authLoading ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
+              }}
+            >
+              {authLoading ? "Creating..." : "Continue"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Step 2: Training Focus Selection
+    if (onboardingStep === "step2") {
+      return (
+        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
+          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
+            <button
+              onClick={() => setOnboardingStep("step1")}
+              className="mb-8 text-black"
+            >
+              ← Back
+            </button>
+            
+            <div className="mb-2">
+              <div className="h-1 w-24 rounded-full" style={{ background: "#E5E5E5" }}></div>
+            </div>
+
+            <h1 className="text-3xl font-bold mb-2">What's your training focus?</h1>
+            <p className="text-base mb-10" style={{ color: "#666666" }}>
+              This will be used to calibrate your custom plan.
+            </p>
+
+            <div className="space-y-3 mb-10">
+              {[
+                { label: "Strength", value: "STRENGTH", desc: "Build maximum strength" },
+                { label: "Hypertrophy", value: "HYPERTROPHY", desc: "Build muscle size" },
+                { label: "Hybrid", value: "HYBRID", desc: "Best of both worlds" },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setOnboardingData({ ...onboardingData, goal: option.value as TrainingFocus })}
+                  className="w-full rounded-3xl px-5 py-5 text-left transition-all"
+                  style={{
+                    background: onboardingData.goal === option.value ? "#F5F5F5" : "#FFFFFF",
+                    border: onboardingData.goal === option.value ? "none" : "1px solid #E5E5E5",
+                  }}
+                >
+                  <div className="flex items-center gap-4">
+                    <div
+                      className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                      style={{
+                        borderColor: onboardingData.goal === option.value ? "#000000" : "#D0D0D0",
+                      }}
+                    >
+                      {onboardingData.goal === option.value && (
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "#000000" }}></div>
+                      )}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-lg font-bold mb-0.5">{option.label}</div>
+                      <div className="text-sm" style={{ color: "#666666" }}>
+                        {option.desc}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleOnboardingNext}
+              disabled={authLoading}
+              className="w-full rounded-2xl py-4 font-semibold text-white disabled:opacity-50"
+              style={{ background: ACCENT }}
+            >
+              {authLoading ? "Creating account..." : "Continue"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Step 3: Confirmation
+    if (onboardingStep === "step3") {
+      return (
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFFFFF", color: "#000000" }}>
+          <div className="mx-auto max-w-md px-6 text-center">
+            <div className="mb-8">
+              <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center" style={{ background: "#F0F0F0" }}>
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            </div>
+
+            <h1 className="text-3xl font-bold mb-4">You're all set, {onboardingData.name}!</h1>
+            
+            <p className="text-base mb-8 leading-relaxed" style={{ color: "#666666" }}>
+              We can't wait to see how you progress over the next 8 weeks! We know you're going to smash it!
+            </p>
+            
+            <p className="text-base mb-12 font-semibold" style={{ color: "#000000" }}>
+              Big Love,<br />Hybrid House Team
+            </p>
+
+            <div className="text-sm mb-8" style={{ color: "#666666" }}>
+              Check your email ({onboardingData.email}) to confirm your account before logging in.
+            </div>
+
+            <button
+              onClick={() => {
+                setOnboardingStep("login");
+                setEmail(onboardingData.email);
+              }}
+              className="w-full rounded-3xl py-4 font-semibold text-white transition-all"
+              style={{ 
+                background: ACCENT,
+                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+              }}
+            >
+              Go to Login
+            </button>
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (!dataLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        Loading your account...
       </div>
     );
   }
@@ -1347,7 +1771,7 @@ function App() {
               {tab}
             </div>
           </div>
-          <IconButton onClick={() => setAuthed(false)} size="sm">
+          <IconButton onClick={() => supabase.auth.signOut()} size="sm">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
             </svg>
@@ -2432,7 +2856,7 @@ function App() {
                 </div>
               </Card>
 
-              <PrimaryButton onClick={() => setAuthed(false)}>Logout</PrimaryButton>
+              <PrimaryButton onClick={() => supabase.auth.signOut()}>Logout</PrimaryButton>
             </div>
           ) : null}
         </div>
