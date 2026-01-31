@@ -1896,21 +1896,8 @@ function App() {
             </p>
 
             <button
-              onClick={async () => {
-                // Check if user has a session - if yes, go to profile, if no, go to login
-                const { data: { session: currentSession } } = await supabase.auth.getSession();
-                if (currentSession?.user) {
-                  // User is logged in - exit onboarding to show main app
-                  setOnboardingStep("login");
-                  // Force refresh session state
-                  setSession(currentSession ? { user: { id: currentSession.user.id } } : null);
-                } else {
-                  // Not logged in - go to login screen
-                  setOnboardingStep("login");
-                  if (onboardingData.email) {
-                    setEmail(onboardingData.email);
-                  }
-                }
+              onClick={() => {
+                setOnboardingStep("login");
               }}
               className="w-full rounded-3xl py-4.5 font-semibold text-white transition-all text-base"
               style={{ 
