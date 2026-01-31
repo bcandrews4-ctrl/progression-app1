@@ -1477,11 +1477,22 @@ function App() {
     setAuthError(null);
     setAuthMessage(null);
     
+    // Validate Supabase configuration
+    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      setAuthError("Configuration error: Missing Supabase credentials. Please check environment variables.");
+      setAuthLoading(false);
+      return;
+    }
+    
     try {
       const { data, error } = await supabase.auth.signUp({ 
         email: onboardingData.email, 
         password: onboardingData.password 
       });
+      
       if (error) {
         // Clean up error messages for better UX
         let errorMessage = error.message;
@@ -1491,21 +1502,56 @@ function App() {
           errorMessage = "An account with this email already exists. Please log in instead.";
         } else if (errorMessage.includes("Password")) {
           errorMessage = "Password must be at least 6 characters long.";
+        } else if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+          errorMessage = "Network error: Unable to connect to server. Please check your internet connection and try again.";
         }
         setAuthError(errorMessage);
         setAuthLoading(false);
         return;
       }
+      
       if (data.user) {
-        const defaultData = buildEmptyData();
-        defaultData.focus = onboardingData.goal;
-        await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
-        setOnboardingStep("step3");
+        try {
+          const defaultData = buildEmptyData();
+          defaultData.focus = onboardingData.goal;
+          const { error: profileError } = await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+          
+          if (profileError) {
+            console.error("Profile creation error:", profileError);
+            // Don't block signup if profile creation fails - user can still proceed
+            setAuthError("Account created, but profile setup failed. Please contact support.");
+            setAuthLoading(false);
+            return;
+          }
+          
+          setOnboardingStep("step3");
+        } catch (profileErr: any) {
+          console.error("Profile creation exception:", profileErr);
+          setAuthError("Account created, but profile setup failed. Please contact support.");
+          setAuthLoading(false);
+          return;
+        }
+      } else {
+        setAuthError("Account creation failed. Please try again.");
       }
     } catch (err: any) {
-      setAuthError(err?.message || "An error occurred. Please try again.");
+      console.error("Signup error:", err);
+      let errorMessage = "An error occurred. Please try again.";
+      
+      if (err?.message) {
+        if (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")) {
+          errorMessage = "Network error: Unable to connect to server. Please check your internet connection.";
+        } else if (err.message.includes("CORS")) {
+          errorMessage = "Connection error: Please check your Supabase URL configuration.";
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setAuthError(errorMessage);
+    } finally {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   };
 
   const handleOnboardingNext = async () => {
@@ -1521,6 +1567,16 @@ function App() {
         setAuthError("Please select a training focus");
         return;
       }
+      
+      // Validate Supabase config before attempting signup
+      const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+      const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseKey) {
+        setAuthError("Configuration error: Missing Supabase credentials. Please check environment variables in Vercel.");
+        return;
+      }
+      
       await handleSignup();
     }
   };
