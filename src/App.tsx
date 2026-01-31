@@ -2041,7 +2041,12 @@ function App() {
   // All onboarding steps are handled above - no duplicate code needed
 
   if (!dataLoaded) {
-          <div className="mx-auto max-w-md px-6" style={{ paddingTop: "50px", paddingBottom: "50px" }}>
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        Loading your account...
+      </div>
+    );
+  }
             <button
               onClick={() => setOnboardingStep("login")}
               className="mb-8 text-black"
