@@ -1875,8 +1875,8 @@ function App() {
     // Step 3: Confirmation
     if (onboardingStep === "step3") {
       return (
-        <div className="min-h-screen flex items-center justify-center" style={{ background: "#FFFFFF", color: "#000000" }}>
-          <div className="mx-auto max-w-md px-6 text-center">
+        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
+          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
             <div className="mb-8">
               <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center" style={{ background: "#F0F0F0" }}>
                 <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
@@ -1885,24 +1885,20 @@ function App() {
               </div>
             </div>
 
-            <h1 className="text-3xl font-bold mb-4">You're all set, {onboardingData.name}!</h1>
+            <h1 className="text-3xl font-bold mb-4 text-center">You're all set, {onboardingData.name}!</h1>
             
-            <p className="text-base mb-8 leading-relaxed font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
+            <p className="text-base mb-8 leading-relaxed font-bold text-center" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
               We can't wait to see how you progress over the next 8 weeks! We know you're going to smash it!
             </p>
             
-            <p className="text-base mb-12 font-bold" style={{ color: "#000000", fontFamily: "var(--font-subheading)" }}>
+            <p className="text-base mb-12 font-bold text-center" style={{ color: "#000000", fontFamily: "var(--font-subheading)" }}>
               Big Love,<br />Hybrid House Team
             </p>
 
             <button
               onClick={() => {
-                // Exit onboarding flow - if user is logged in, they'll see their profile
-                // If not logged in yet, they'll see the login screen
+                // Exit onboarding - will show profile if logged in, or login if not
                 setOnboardingStep("login");
-                if (onboardingData.email) {
-                  setEmail(onboardingData.email);
-                }
               }}
               className="w-full rounded-3xl py-4.5 font-semibold text-white transition-all text-base"
               style={{ 
