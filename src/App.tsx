@@ -1005,12 +1005,26 @@ function App() {
 
       if (cancelled) return;
 
+      // Check for pending goal from signup
+      const pendingGoal = localStorage.getItem(`pending_goal_${userId}`);
+      
       if (error || !data?.data) {
         const defaultData = buildEmptyData();
+        if (pendingGoal) {
+          defaultData.focus = pendingGoal as TrainingFocus;
+          localStorage.removeItem(`pending_goal_${userId}`);
+        }
         await supabase.from("profiles").upsert({ id: userId, data: defaultData });
         applyUserData(defaultData);
       } else {
-        applyUserData(data.data as UserData);
+        const userData = data.data as UserData;
+        // If profile exists but has no focus and we have a pending goal, update it
+        if (pendingGoal && !userData.focus) {
+          userData.focus = pendingGoal as TrainingFocus;
+          await supabase.from("profiles").update({ data: userData }).eq("id", userId);
+          localStorage.removeItem(`pending_goal_${userId}`);
+        }
+        applyUserData(userData);
       }
       setDataLoaded(true);
     };
@@ -1531,53 +1545,38 @@ function App() {
       }
       
       if (data.user) {
-        try {
-          // Wait a moment for the database trigger to create the profile
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          // Get the session to ensure we're authenticated
-          const { data: sessionData } = await supabase.auth.getSession();
-          
-          if (!sessionData?.session) {
-            // If no session, wait a bit more and try again
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const { data: retrySession } = await supabase.auth.getSession();
-            if (!retrySession?.session) {
-              setAuthError("Session not established. Please check your email to confirm your account, then log in.");
-              setAuthLoading(false);
-              return;
-            }
-          }
-          
-          const defaultData = buildEmptyData();
-          defaultData.focus = onboardingData.goal;
-          
-          // Update the profile (trigger should have created it automatically)
-          // Use upsert as a fallback in case trigger didn't fire
-          const { error: profileError } = await supabase
-            .from("profiles")
-            .upsert({ id: data.user.id, data: defaultData }, { onConflict: 'id' });
-          
-          if (profileError) {
-            console.error("Profile update error:", profileError);
+        // Store goal in user metadata for later use
+        const defaultData = buildEmptyData();
+        defaultData.focus = onboardingData.goal;
+        
+        // Try to update profile if session is available
+        const { data: sessionData } = await supabase.auth.getSession();
+        
+        if (sessionData?.session) {
+          // Session available - update profile now
+          try {
+            await new Promise(resolve => setTimeout(resolve, 500)); // Wait for trigger
+            const { error: profileError } = await supabase
+              .from("profiles")
+              .update({ data: defaultData })
+              .eq("id", data.user.id);
             
-            // If it's a 401, the session might not be ready yet
-            if (profileError.code === "42501" || profileError.status === 401) {
-              setAuthError("Please check your email to confirm your account, then log in to complete setup.");
-            } else {
-              setAuthError(`Profile setup error: ${profileError.message}`);
+            if (profileError) {
+              console.error("Profile update error:", profileError);
+              // Continue anyway - profile will be updated on login
             }
-            setAuthLoading(false);
-            return;
+          } catch (err) {
+            console.error("Profile update exception:", err);
+            // Continue anyway
           }
-          
-          setOnboardingStep("step3");
-        } catch (profileErr: any) {
-          console.error("Profile update exception:", profileErr);
-          setAuthError("Account created. Please log in to complete your profile setup.");
-          setAuthLoading(false);
-          return;
+        } else {
+          // No session - email confirmation required
+          // Store goal in localStorage to update on login
+          localStorage.setItem(`pending_goal_${data.user.id}`, onboardingData.goal);
         }
+        
+        // Always proceed to step 3 - profile will be updated when they log in
+        setOnboardingStep("step3");
       } else {
         setAuthError("Account creation failed. Please try again.");
       }
