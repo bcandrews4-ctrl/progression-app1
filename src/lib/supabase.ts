@@ -61,22 +61,6 @@ export const supabase = createClient(
       headers: {
         "x-client-info": "gym-progression-app",
       },
-      fetch: (url, options = {}) => {
-        // Add timeout to prevent hanging requests
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
-        // Preserve all existing headers and options
-        return fetch(url, {
-          ...options,
-          headers: {
-            ...options.headers,
-          },
-          signal: controller.signal,
-        }).finally(() => {
-          clearTimeout(timeoutId);
-        });
-      },
     },
   }
 );
