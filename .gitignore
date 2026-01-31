@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+release/
+dist-electron/
+.vite/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# iOS / React Native
+GymProgressionMobile/ios/Pods/
+GymProgressionMobile/ios/build/
+GymProgressionMobile/ios/HelloWorld.xcworkspace/
+GymProgressionMobile/ios/.xcode.env.local
+GymProgressionMobile/vendor/bundle/
