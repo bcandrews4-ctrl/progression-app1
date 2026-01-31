@@ -2039,7 +2039,8 @@ function App() {
   }
 
   // All onboarding steps are handled above - no duplicate code needed
-        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
+
+  if (!dataLoaded) {
           <div className="mx-auto max-w-md px-6" style={{ paddingTop: "50px", paddingBottom: "50px" }}>
             <button
               onClick={() => setOnboardingStep("login")}
