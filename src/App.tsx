@@ -1462,22 +1462,45 @@ function App() {
     setAuthLoading(true);
     setAuthError(null);
     setAuthMessage(null);
-    const { data, error } = await supabase.auth.signUp({ 
-      email: onboardingData.email, 
-      password: onboardingData.password 
-    });
-    if (error) {
-      setAuthError(error.message);
+
+    const emailTrimmed = onboardingData.email.trim();
+    if (!emailTrimmed || !onboardingData.password) {
+      setAuthError("Please enter a valid email and password.");
       setAuthLoading(false);
       return;
     }
-    if (data.user) {
+    if (onboardingData.password.length < 6) {
+      setAuthError("Password must be at least 6 characters.");
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: emailTrimmed,
+        password: onboardingData.password,
+      });
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+      if (!data.user) {
+        setAuthError("Signup succeeded but no user was returned. Please check your email and try logging in.");
+        return;
+      }
       const defaultData = buildEmptyData();
       defaultData.focus = onboardingData.goal;
-      await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+      const { error: profileError } = await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+      if (profileError) {
+        console.warn("Profile upsert failed", profileError);
+      }
       setOnboardingStep("step3");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to create account. Please try again.";
+      setAuthError(message);
+    } finally {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   };
 
   const handleOnboardingNext = async () => {
@@ -1729,6 +1752,12 @@ function App() {
             >
               {authLoading ? "Creating account..." : "Continue"}
             </button>
+
+            {authError && (
+              <div className="text-sm text-center mt-6" style={{ color: "rgba(255,120,120,0.9)" }}>
+                {authError}
+              </div>
+            )}
           </div>
         </div>
       );
