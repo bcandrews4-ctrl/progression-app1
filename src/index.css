@@ -8,6 +8,20 @@
   font-style: normal;
   font-display: swap;
 }
+@font-face {
+  font-family: "Gabriel Sans";
+  src: url("/fonts/GabrielSans.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Gabriel Sans";
+  src: url("/fonts/GabrielSans-Bold.woff") format("woff");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     *, :before, :after, ::backdrop {
@@ -1433,7 +1447,7 @@ html {
 
 :root {
   --font-heading: "Speed", "Speed 2", "Space Grotesk", var(--font-sans);
-  --font-subheading: "Space Grotesk", var(--font-sans);
+  --font-subheading: "Arial", "Helvetica Neue", Helvetica, sans-serif;
 }
 
 /* Mobile viewport fixes */
@@ -1457,8 +1471,19 @@ html {
 }
 
 :where(.text-xs, .text-sm) {
-  font-family: var(--font-subheading);
-  font-weight: 700;
+  font-family: var(--font-subheading) !important;
+  font-weight: bold;
+}
+
+/* Ensure all labels use subheading font */
+label {
+  font-family: var(--font-subheading) !important;
+  font-weight: 800;
+}
+
+/* Ensure subtitle/description text uses subheading font */
+.text-xs, .text-sm, [class*="subtitle"], [class*="description"] {
+  font-family: var(--font-subheading) !important;
 }
 
 @property --tw-translate-x {

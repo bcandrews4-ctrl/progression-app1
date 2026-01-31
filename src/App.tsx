@@ -1480,7 +1480,8 @@ function App() {
     setAuthLoading(false);
   };
 
-  const handleOnboardingNext = () => {
+  const handleOnboardingNext = async () => {
+    setAuthError(null);
     if (onboardingStep === "step1") {
       if (!onboardingData.name || !onboardingData.age || !onboardingData.email || !onboardingData.password) {
         setAuthError("Please fill in all fields");
@@ -1488,7 +1489,7 @@ function App() {
       }
       setOnboardingStep("step2");
     } else if (onboardingStep === "step2") {
-      handleSignup();
+      await handleSignup();
     }
   };
 
@@ -1497,7 +1498,7 @@ function App() {
     if (onboardingStep === "login") {
       return (
         <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-          <div className="mx-auto max-w-md px-6 pt-20 pb-32">
+          <div className="mx-auto max-w-md px-6 pb-32" style={{ paddingTop: "50px" }}>
             <div className="text-4xl font-bold mb-2">Hybrid House</div>
             <div className="text-sm mb-12" style={{ color: MUTED }}>
               Journal + Progress
@@ -1546,72 +1547,92 @@ function App() {
               <div className="h-1 w-12 rounded-full" style={{ background: "#E5E5E5" }}></div>
             </div>
 
-            <h1 className="text-3xl font-bold mb-2">Let's get started</h1>
-            <p className="text-base mb-10" style={{ color: "#666666" }}>
+            <h1 className="text-3xl font-bold mb-3">Let's get started</h1>
+            <p className="text-base mb-12 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
               We'll use this to personalize your experience.
             </p>
 
-            <div className="space-y-5 mb-10">
+            <div className="space-y-6 mb-24">
               <div>
-                <label className="block text-sm font-semibold mb-2.5">Name</label>
+                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Name</label>
                 <input
                   type="text"
                   value={onboardingData.name}
                   onChange={(e) => setOnboardingData({ ...onboardingData, name: e.target.value })}
                   placeholder="Enter your name"
-                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
                   style={{ 
                     background: "#F9F9F9",
                     borderColor: "#E5E5E5",
+                    fontFamily: "var(--font-subheading)",
+                    overflow: "visible",
+                    borderRadius: "30px",
+                    paddingLeft: "10px",
+                    paddingRight: "10px",
                   }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold mb-2.5">Age</label>
+                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Age</label>
                 <input
                   type="number"
                   value={onboardingData.age}
                   onChange={(e) => setOnboardingData({ ...onboardingData, age: e.target.value })}
                   placeholder="Enter your age"
-                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
                   style={{ 
                     background: "#F9F9F9",
                     borderColor: "#E5E5E5",
+                    fontFamily: "var(--font-subheading)",
+                    overflow: "visible",
+                    borderRadius: "30px",
+                    paddingLeft: "10px",
+                    paddingRight: "10px",
                   }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold mb-2.5">Email</label>
+                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Email</label>
                 <input
                   type="email"
                   value={onboardingData.email}
                   onChange={(e) => setOnboardingData({ ...onboardingData, email: e.target.value })}
                   placeholder="you@email.com"
-                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
                   style={{ 
                     background: "#F9F9F9",
                     borderColor: "#E5E5E5",
+                    fontFamily: "var(--font-subheading)",
+                    overflow: "visible",
+                    borderRadius: "30px",
+                    paddingLeft: "10px",
+                    paddingRight: "10px",
                   }}
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold mb-2.5">Password</label>
+                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Password</label>
                 <input
                   type="password"
                   value={onboardingData.password}
                   onChange={(e) => setOnboardingData({ ...onboardingData, password: e.target.value })}
                   placeholder="••••••••"
-                  className="w-full rounded-3xl px-5 py-4 border focus:outline-none focus:ring-2 transition-all"
+                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
                   style={{ 
                     background: "#F9F9F9",
                     borderColor: "#E5E5E5",
+                    fontFamily: "var(--font-subheading)",
+                    overflow: "visible",
+                    borderRadius: "30px",
+                    paddingLeft: "10px",
+                    paddingRight: "10px",
                   }}
                 />
               </div>
             </div>
 
             {authError && (
-              <div className="text-sm text-center mb-4" style={{ color: "rgba(255,120,120,0.9)" }}>
+              <div className="text-sm text-center mb-6" style={{ color: "rgba(255,120,120,0.9)" }}>
                 {authError}
               </div>
             )}
@@ -1619,10 +1640,14 @@ function App() {
             <button
               onClick={handleOnboardingNext}
               disabled={authLoading}
-              className="w-full rounded-3xl py-4 font-semibold text-white disabled:opacity-50 transition-all"
+              className="w-full py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base"
               style={{ 
                 background: authLoading ? "#999999" : ACCENT,
                 boxShadow: authLoading ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+                height: "35px",
+                overflow: "visible",
+                borderRadius: "30px",
               }}
             >
               {authLoading ? "Creating..." : "Continue"}
@@ -1648,12 +1673,12 @@ function App() {
               <div className="h-1 w-24 rounded-full" style={{ background: "#E5E5E5" }}></div>
             </div>
 
-            <h1 className="text-3xl font-bold mb-2">What's your training focus?</h1>
-            <p className="text-base mb-10" style={{ color: "#666666" }}>
+            <h1 className="text-3xl font-bold mb-3">What's your training focus?</h1>
+            <p className="text-base mb-12 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
               This will be used to calibrate your custom plan.
             </p>
 
-            <div className="space-y-3 mb-10">
+            <div className="space-y-4 mb-16">
               {[
                 { label: "Strength", value: "STRENGTH", desc: "Build maximum strength" },
                 { label: "Hypertrophy", value: "HYPERTROPHY", desc: "Build muscle size" },
@@ -1662,10 +1687,10 @@ function App() {
                 <button
                   key={option.value}
                   onClick={() => setOnboardingData({ ...onboardingData, goal: option.value as TrainingFocus })}
-                  className="w-full rounded-3xl px-5 py-5 text-left transition-all"
+                  className="w-full rounded-3xl px-6 py-5 text-left transition-all"
                   style={{
                     background: onboardingData.goal === option.value ? "#F5F5F5" : "#FFFFFF",
-                    border: onboardingData.goal === option.value ? "none" : "1px solid #E5E5E5",
+                    border: onboardingData.goal === option.value ? "2px solid #000000" : "1px solid #E5E5E5",
                   }}
                 >
                   <div className="flex items-center gap-4">
@@ -1680,8 +1705,8 @@ function App() {
                       )}
                     </div>
                     <div className="flex-1 text-left">
-                      <div className="text-lg font-bold mb-0.5">{option.label}</div>
-                      <div className="text-sm" style={{ color: "#666666" }}>
+                      <div className="text-lg font-bold mb-1">{option.label}</div>
+                      <div className="text-sm font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
                         {option.desc}
                       </div>
                     </div>
@@ -1693,8 +1718,14 @@ function App() {
             <button
               onClick={handleOnboardingNext}
               disabled={authLoading}
-              className="w-full rounded-2xl py-4 font-semibold text-white disabled:opacity-50"
-              style={{ background: ACCENT }}
+              className="w-full rounded-3xl py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base"
+              style={{ 
+                background: authLoading ? "#999999" : ACCENT,
+                boxShadow: authLoading ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+                height: "35px",
+                overflow: "visible",
+              }}
             >
               {authLoading ? "Creating account..." : "Continue"}
             </button>
@@ -1718,15 +1749,15 @@ function App() {
 
             <h1 className="text-3xl font-bold mb-4">You're all set, {onboardingData.name}!</h1>
             
-            <p className="text-base mb-8 leading-relaxed" style={{ color: "#666666" }}>
+            <p className="text-base mb-8 leading-relaxed font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
               We can't wait to see how you progress over the next 8 weeks! We know you're going to smash it!
             </p>
             
-            <p className="text-base mb-12 font-semibold" style={{ color: "#000000" }}>
+            <p className="text-base mb-12 font-bold" style={{ color: "#000000", fontFamily: "var(--font-subheading)" }}>
               Big Love,<br />Hybrid House Team
             </p>
 
-            <div className="text-sm mb-8" style={{ color: "#666666" }}>
+            <div className="text-sm mb-8 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
               Check your email ({onboardingData.email}) to confirm your account before logging in.
             </div>
 
@@ -1735,10 +1766,13 @@ function App() {
                 setOnboardingStep("login");
                 setEmail(onboardingData.email);
               }}
-              className="w-full rounded-3xl py-4 font-semibold text-white transition-all"
+              className="w-full rounded-3xl py-4.5 font-semibold text-white transition-all text-base"
               style={{ 
                 background: ACCENT,
                 boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+                height: "35px",
+                overflow: "visible",
               }}
             >
               Go to Login
