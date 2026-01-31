@@ -1517,6 +1517,10 @@ function App() {
       }
       setOnboardingStep("step2");
     } else if (onboardingStep === "step2") {
+      if (!onboardingData.goal) {
+        setAuthError("Please select a training focus");
+        return;
+      }
       await handleSignup();
     }
   };
@@ -1563,7 +1567,7 @@ function App() {
     if (onboardingStep === "step1") {
       return (
         <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
-          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
+          <div className="mx-auto max-w-md px-6" style={{ paddingTop: "50px", paddingBottom: "50px" }}>
             <button
               onClick={() => setOnboardingStep("login")}
               className="mb-8 text-black"
@@ -1597,6 +1601,7 @@ function App() {
                     borderRadius: "30px",
                     paddingLeft: "10px",
                     paddingRight: "10px",
+                    height: "40px",
                   }}
                 />
               </div>
@@ -1616,6 +1621,7 @@ function App() {
                     borderRadius: "30px",
                     paddingLeft: "10px",
                     paddingRight: "10px",
+                    height: "40px",
                   }}
                 />
               </div>
@@ -1635,6 +1641,7 @@ function App() {
                     borderRadius: "30px",
                     paddingLeft: "10px",
                     paddingRight: "10px",
+                    height: "40px",
                   }}
                 />
               </div>
@@ -1654,6 +1661,7 @@ function App() {
                     borderRadius: "30px",
                     paddingLeft: "10px",
                     paddingRight: "10px",
+                    height: "40px",
                   }}
                 />
               </div>
@@ -1706,53 +1714,82 @@ function App() {
               This will be used to calibrate your custom plan.
             </p>
 
-            <div className="space-y-4 mb-16">
+            <div className="space-y-3 mb-16">
               {[
                 { label: "Strength", value: "STRENGTH", desc: "Build maximum strength" },
                 { label: "Hypertrophy", value: "HYPERTROPHY", desc: "Build muscle size" },
                 { label: "Hybrid", value: "HYBRID", desc: "Best of both worlds" },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setOnboardingData({ ...onboardingData, goal: option.value as TrainingFocus })}
-                  className="w-full rounded-3xl px-6 py-5 text-left transition-all"
-                  style={{
-                    background: onboardingData.goal === option.value ? "#F5F5F5" : "#FFFFFF",
-                    border: onboardingData.goal === option.value ? "2px solid #000000" : "1px solid #E5E5E5",
-                  }}
-                >
-                  <div className="flex items-center gap-4">
-                    <div
-                      className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+              ].map((option) => {
+                const isSelected = onboardingData.goal === option.value;
+                return (
+                  <div
+                    key={option.value}
+                    className="rounded-2xl transition-all"
+                    style={{
+                      background: isSelected 
+                        ? "linear-gradient(135deg, #0000FF 0%, #000000 100%)"
+                        : "transparent",
+                      padding: isSelected ? "2px" : "0px",
+                    }}
+                  >
+                    <button
+                      onClick={() => setOnboardingData({ ...onboardingData, goal: option.value as TrainingFocus })}
+                      className="w-full rounded-2xl px-5 py-4 text-left transition-all active:scale-[0.98]"
                       style={{
-                        borderColor: onboardingData.goal === option.value ? "#000000" : "#D0D0D0",
+                        background: "#FFFFFF",
+                        border: isSelected ? "none" : "1px solid #E5E5E5",
                       }}
                     >
-                      {onboardingData.goal === option.value && (
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "#000000" }}></div>
-                      )}
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-lg font-bold mb-1">{option.label}</div>
-                      <div className="text-sm font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
-                        {option.desc}
+                      <div className="flex items-center">
+                        <div className="flex-1" style={{ marginLeft: "10px" }}>
+                          <div 
+                            className="text-lg font-bold mb-0.5"
+                            style={{ 
+                              color: "#000000",
+                            }}
+                          >
+                            {option.label}
+                          </div>
+                          <div 
+                            className="text-sm font-bold"
+                            style={{ 
+                              color: "#666666",
+                              fontFamily: "var(--font-subheading)",
+                            }}
+                          >
+                            {option.desc}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    </button>
                   </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
 
+            {authError && (
+              <div className="text-sm text-center mb-6" style={{ color: "rgba(255,120,120,0.9)" }}>
+                {authError}
+              </div>
+            )}
+
             <button
-              onClick={handleOnboardingNext}
-              disabled={authLoading}
-              className="w-full rounded-3xl py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base"
+              onClick={async () => {
+                if (!onboardingData.goal) {
+                  setAuthError("Please select a training focus");
+                  return;
+                }
+                await handleOnboardingNext();
+              }}
+              disabled={authLoading || !onboardingData.goal}
+              className="w-full rounded-3xl py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base active:scale-[0.98]"
               style={{ 
-                background: authLoading ? "#999999" : ACCENT,
-                boxShadow: authLoading ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
+                background: (authLoading || !onboardingData.goal) ? "#999999" : ACCENT,
+                boxShadow: (authLoading || !onboardingData.goal) ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
                 fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
                 height: "35px",
                 overflow: "visible",
+                borderRadius: "30px",
               }}
             >
               {authLoading ? "Creating account..." : "Continue"}

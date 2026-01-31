@@ -1,22 +1,34 @@
 -- Supabase schema for per-user data
-create table if not exists public.profiles (
-  id uuid primary key references auth.users on delete cascade,
-  data jsonb not null,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+-- Run this ENTIRE script at once in Supabase SQL Editor
+-- Use "postgres role" for setup
+
+-- Step 1: Drop everything if it exists (clean slate)
+DROP TABLE IF EXISTS public.profiles CASCADE;
+
+-- Step 2: Create the table
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  data jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
-alter table public.profiles enable row level security;
+-- Step 3: Enable Row Level Security
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
-create policy "Profiles are readable by owner"
-on public.profiles for select
-using (auth.uid() = id);
+-- Step 4: Create security policies
+CREATE POLICY "Users can view own profile"
+ON public.profiles
+FOR SELECT
+USING (auth.uid() = id);
 
-create policy "Profiles are insertable by owner"
-on public.profiles for insert
-with check (auth.uid() = id);
+CREATE POLICY "Users can insert own profile"
+ON public.profiles
+FOR INSERT
+WITH CHECK (auth.uid() = id);
 
-create policy "Profiles are updatable by owner"
-on public.profiles for update
-using (auth.uid() = id)
-with check (auth.uid() = id);
+CREATE POLICY "Users can update own profile"
+ON public.profiles
+FOR UPDATE
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
