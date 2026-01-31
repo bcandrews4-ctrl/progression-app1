@@ -1529,6 +1529,8 @@ function App() {
           }
         } else if (error.status === 401 || error.status === 403) {
           errorMessage = "Authentication error: Please check your Supabase API key configuration.";
+        } else if (error.status === 429) {
+          errorMessage = "Too many signup attempts. Please wait a few minutes and try again, or disable email confirmation in Supabase settings.";
         } else if (error.status === 0 || errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
           // Status 0 usually means CORS or network issue
           errorMessage = `Connection error: ${errorMessage}. Please verify your Supabase URL is correct and CORS is enabled.`;
