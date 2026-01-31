@@ -2038,12 +2038,7 @@ function App() {
     );
   }
 
-  // REMOVE ALL DUPLICATE STEP CODE BELOW - it's already handled above
-  // All onboarding steps (step1, step2, step3) are handled in the block above
-  // This section should never be reached, but keeping for safety
-  if (false) {
-    // DUPLICATE CODE - REMOVED
-    return (
+  // All onboarding steps are handled above - no duplicate code needed
         <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
           <div className="mx-auto max-w-md px-6" style={{ paddingTop: "50px", paddingBottom: "50px" }}>
             <button
