@@ -33,9 +33,18 @@ if (supabaseUrl && !supabaseUrl.startsWith("https://")) {
   console.error("❌ Invalid Supabase URL format. Must start with https://");
 }
 
+// Validate URL is a valid Supabase domain
+if (supabaseUrl && !supabaseUrl.includes(".supabase.co")) {
+  console.error("❌ Invalid Supabase URL. Must be a .supabase.co domain");
+}
+
 // Create client - throw error if critical config is missing
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error("❌ Cannot initialize Supabase client: missing credentials");
+} else {
+  // Log the URL being used (without exposing the key)
+  console.log("🔗 Supabase URL:", supabaseUrl);
+  console.log("🔑 Supabase Key:", supabaseAnonKey ? `${supabaseAnonKey.substring(0, 20)}...` : "MISSING");
 }
 
 export const supabase = createClient(
