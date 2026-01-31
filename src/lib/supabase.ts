@@ -46,10 +46,23 @@ export const supabase = createClient(
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      flowType: "pkce", // Use PKCE flow for better security
     },
     global: {
       headers: {
         "x-client-info": "gym-progression-app",
+      },
+      fetch: (url, options = {}) => {
+        // Add timeout to prevent hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        return fetch(url, {
+          ...options,
+          signal: controller.signal,
+        }).finally(() => {
+          clearTimeout(timeoutId);
+        });
       },
     },
   }

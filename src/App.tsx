@@ -1494,17 +1494,37 @@ function App() {
       });
       
       if (error) {
+        // Log full error for debugging
+        console.error("Supabase signup error:", {
+          message: error.message,
+          status: error.status,
+          name: error.name,
+        });
+        
         // Clean up error messages for better UX
         let errorMessage = error.message;
-        if (errorMessage.includes("publishable") || errorMessage.includes("Invalid API key")) {
-          errorMessage = "Invalid API key configuration. Please contact support.";
-        } else if (errorMessage.includes("User already registered") || errorMessage.includes("already registered")) {
-          errorMessage = "An account with this email already exists. Please log in instead.";
-        } else if (errorMessage.includes("Password")) {
-          errorMessage = "Password must be at least 6 characters long.";
-        } else if (errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
-          errorMessage = "Network error: Unable to connect to server. Please check your internet connection and try again.";
+        
+        // Check error status codes
+        if (error.status === 400) {
+          if (errorMessage.includes("User already registered") || errorMessage.includes("already registered")) {
+            errorMessage = "An account with this email already exists. Please log in instead.";
+          } else if (errorMessage.includes("Password")) {
+            errorMessage = "Password must be at least 6 characters long.";
+          } else if (errorMessage.includes("Invalid email")) {
+            errorMessage = "Please enter a valid email address.";
+          }
+        } else if (error.status === 401 || error.status === 403) {
+          errorMessage = "Authentication error: Please check your Supabase API key configuration.";
+        } else if (error.status === 0 || errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
+          // Status 0 usually means CORS or network issue
+          errorMessage = `Connection error: ${errorMessage}. Please verify your Supabase URL is correct and CORS is enabled.`;
+        } else if (errorMessage.includes("publishable") || errorMessage.includes("Invalid API key")) {
+          errorMessage = "Invalid API key: Make sure you're using the 'anon' key from Supabase Settings → API.";
+        } else {
+          // Show the actual error message
+          errorMessage = `Error: ${errorMessage} (Status: ${error.status || 'unknown'})`;
         }
+        
         setAuthError(errorMessage);
         setAuthLoading(false);
         return;
@@ -1535,17 +1555,26 @@ function App() {
         setAuthError("Account creation failed. Please try again.");
       }
     } catch (err: any) {
-      console.error("Signup error:", err);
+      console.error("Signup exception:", {
+        message: err?.message,
+        name: err?.name,
+        stack: err?.stack,
+        cause: err?.cause,
+      });
+      
       let errorMessage = "An error occurred. Please try again.";
       
       if (err?.message) {
+        // Show the actual error message with context
         if (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")) {
-          errorMessage = "Network error: Unable to connect to server. Please check your internet connection.";
+          errorMessage = `Connection failed: ${err.message}. This usually means:\n1. Supabase URL is incorrect\n2. CORS is not enabled\n3. API key is invalid\n\nCheck browser console (F12) for details.`;
         } else if (err.message.includes("CORS")) {
-          errorMessage = "Connection error: Please check your Supabase URL configuration.";
+          errorMessage = "CORS error: Please check your Supabase project settings allow requests from this domain.";
         } else {
-          errorMessage = err.message;
+          errorMessage = `Error: ${err.message}`;
         }
+      } else if (err?.cause) {
+        errorMessage = `Error: ${err.cause}`;
       }
       
       setAuthError(errorMessage);
