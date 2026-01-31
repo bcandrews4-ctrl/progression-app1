@@ -1532,51 +1532,49 @@ function App() {
       
       if (data.user) {
         try {
-          // Wait for session to be established (needed for RLS policies)
-          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          // Wait a moment for the database trigger to create the profile
+          await new Promise(resolve => setTimeout(resolve, 500));
           
-          if (sessionError) {
-            console.error("Session error:", sessionError);
-            // Try to create profile anyway - RLS might still work
-          }
+          // Get the session to ensure we're authenticated
+          const { data: sessionData } = await supabase.auth.getSession();
           
-          const defaultData = buildEmptyData();
-          defaultData.focus = onboardingData.goal;
-          
-          // Use INSERT instead of UPSERT to ensure we're creating a new profile
-          // RLS policy requires auth.uid() = id, so we must use the authenticated session
-          const { error: profileError } = await supabase
-            .from("profiles")
-            .insert({ id: data.user.id, data: defaultData });
-          
-          if (profileError) {
-            console.error("Profile creation error:", profileError);
-            
-            // If RLS error, try to get fresh session and retry
-            if (profileError.code === "42501" || profileError.message.includes("row-level security")) {
-              // Refresh session and retry
-              await supabase.auth.refreshSession();
-              const { error: retryError } = await supabase
-                .from("profiles")
-                .insert({ id: data.user.id, data: defaultData });
-              
-              if (retryError) {
-                console.error("Profile creation retry error:", retryError);
-                setAuthError("Account created, but profile setup failed. Please log out and log back in.");
-                setAuthLoading(false);
-                return;
-              }
-            } else {
-              setAuthError("Account created, but profile setup failed. Please contact support.");
+          if (!sessionData?.session) {
+            // If no session, wait a bit more and try again
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            const { data: retrySession } = await supabase.auth.getSession();
+            if (!retrySession?.session) {
+              setAuthError("Session not established. Please check your email to confirm your account, then log in.");
               setAuthLoading(false);
               return;
             }
           }
           
+          const defaultData = buildEmptyData();
+          defaultData.focus = onboardingData.goal;
+          
+          // Update the profile (trigger should have created it automatically)
+          // Use upsert as a fallback in case trigger didn't fire
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .upsert({ id: data.user.id, data: defaultData }, { onConflict: 'id' });
+          
+          if (profileError) {
+            console.error("Profile update error:", profileError);
+            
+            // If it's a 401, the session might not be ready yet
+            if (profileError.code === "42501" || profileError.status === 401) {
+              setAuthError("Please check your email to confirm your account, then log in to complete setup.");
+            } else {
+              setAuthError(`Profile setup error: ${profileError.message}`);
+            }
+            setAuthLoading(false);
+            return;
+          }
+          
           setOnboardingStep("step3");
         } catch (profileErr: any) {
-          console.error("Profile creation exception:", profileErr);
-          setAuthError("Account created, but profile setup failed. Please log out and log back in.");
+          console.error("Profile update exception:", profileErr);
+          setAuthError("Account created. Please log in to complete your profile setup.");
           setAuthLoading(false);
           return;
         }
