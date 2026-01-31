@@ -15,7 +15,7 @@ import {
 } from "recharts";
 
 import { colors, radii, shadows, gradients, typography } from "./styles/tokens";
-import { supabase } from "./lib/supabase";
+import { supabase, supabaseConfigError } from "./lib/supabase";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -195,6 +195,18 @@ function withinLastDays(dateISO: string, days: number) {
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function normalizeAuthError(message: string, configError: string | null) {
+  const cleaned = message.trim();
+  if (!cleaned) return "Unable to complete the request. Please try again.";
+  if (/load failed|failed to fetch|network error/i.test(cleaned)) {
+    return configError ?? "Network error connecting to the auth service. Please try again.";
+  }
+  if (/invalid api key/i.test(cleaned)) {
+    return "Supabase anon key is invalid. Update VITE_SUPABASE_ANON_KEY.";
+  }
+  return cleaned;
 }
 
 function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "profile" }) {
@@ -948,6 +960,14 @@ function App() {
     goal: "HYBRID" as TrainingFocus,
   });
 
+  useEffect(() => {
+    if (supabaseConfigError) {
+      setAuthError(supabaseConfigError);
+      setSession(null);
+      setSessionLoading(false);
+    }
+  }, [supabaseConfigError]);
+
   const applyUserData = (data: UserData) => {
     setFocus(data.focus);
     setLifts(data.lifts);
@@ -967,12 +987,23 @@ function App() {
   });
 
   useEffect(() => {
+    if (supabaseConfigError) {
+      return;
+    }
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session ? { user: { id: data.session.user.id } } : null);
-      setSessionLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setSession(data.session ? { user: { id: data.session.user.id } } : null);
+        setSessionLoading(false);
+      })
+      .catch((err) => {
+        if (!mounted) return;
+        const message = err instanceof Error ? err.message : "Unable to reach auth service.";
+        setAuthError(normalizeAuthError(message, supabaseConfigError));
+        setSession(null);
+        setSessionLoading(false);
+      });
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -984,7 +1015,7 @@ function App() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabaseConfigError]);
 
   useEffect(() => {
     const userId = session?.user.id;
@@ -1451,33 +1482,72 @@ function App() {
     setAuthLoading(true);
     setAuthError(null);
     setAuthMessage(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setAuthError(error.message);
+    if (supabaseConfigError) {
+      setAuthError(supabaseConfigError);
+      setAuthLoading(false);
+      return;
     }
-    setAuthLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) {
+        setAuthError(normalizeAuthError(error.message, supabaseConfigError));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to sign in.";
+      setAuthError(normalizeAuthError(message, supabaseConfigError));
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleSignup = async () => {
     setAuthLoading(true);
     setAuthError(null);
     setAuthMessage(null);
-    const { data, error } = await supabase.auth.signUp({ 
-      email: onboardingData.email, 
-      password: onboardingData.password 
-    });
-    if (error) {
-      setAuthError(error.message);
+
+    const emailTrimmed = onboardingData.email.trim();
+    if (!emailTrimmed || !onboardingData.password) {
+      setAuthError("Please enter a valid email and password.");
       setAuthLoading(false);
       return;
     }
-    if (data.user) {
+    if (onboardingData.password.length < 6) {
+      setAuthError("Password must be at least 6 characters.");
+      setAuthLoading(false);
+      return;
+    }
+    if (supabaseConfigError) {
+      setAuthError(supabaseConfigError);
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: emailTrimmed,
+        password: onboardingData.password,
+      });
+      if (error) {
+        setAuthError(normalizeAuthError(error.message, supabaseConfigError));
+        return;
+      }
+      if (!data.user) {
+        setAuthError("Signup succeeded but no user was returned. Please check your email and try logging in.");
+        return;
+      }
       const defaultData = buildEmptyData();
       defaultData.focus = onboardingData.goal;
-      await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+      const { error: profileError } = await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+      if (profileError) {
+        console.warn("Profile upsert failed", profileError);
+      }
       setOnboardingStep("step3");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to create account. Please try again.";
+      setAuthError(normalizeAuthError(message, supabaseConfigError));
+    } finally {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   };
 
   const handleOnboardingNext = async () => {
@@ -1729,6 +1799,12 @@ function App() {
             >
               {authLoading ? "Creating account..." : "Continue"}
             </button>
+
+            {authError && (
+              <div className="text-sm text-center mt-6" style={{ color: "rgba(255,120,120,0.9)" }}>
+                {authError}
+              </div>
+            )}
           </div>
         </div>
       );
