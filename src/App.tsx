@@ -1532,22 +1532,51 @@ function App() {
       
       if (data.user) {
         try {
+          // Wait for session to be established (needed for RLS policies)
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          
+          if (sessionError) {
+            console.error("Session error:", sessionError);
+            // Try to create profile anyway - RLS might still work
+          }
+          
           const defaultData = buildEmptyData();
           defaultData.focus = onboardingData.goal;
-          const { error: profileError } = await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+          
+          // Use INSERT instead of UPSERT to ensure we're creating a new profile
+          // RLS policy requires auth.uid() = id, so we must use the authenticated session
+          const { error: profileError } = await supabase
+            .from("profiles")
+            .insert({ id: data.user.id, data: defaultData });
           
           if (profileError) {
             console.error("Profile creation error:", profileError);
-            // Don't block signup if profile creation fails - user can still proceed
-            setAuthError("Account created, but profile setup failed. Please contact support.");
-            setAuthLoading(false);
-            return;
+            
+            // If RLS error, try to get fresh session and retry
+            if (profileError.code === "42501" || profileError.message.includes("row-level security")) {
+              // Refresh session and retry
+              await supabase.auth.refreshSession();
+              const { error: retryError } = await supabase
+                .from("profiles")
+                .insert({ id: data.user.id, data: defaultData });
+              
+              if (retryError) {
+                console.error("Profile creation retry error:", retryError);
+                setAuthError("Account created, but profile setup failed. Please log out and log back in.");
+                setAuthLoading(false);
+                return;
+              }
+            } else {
+              setAuthError("Account created, but profile setup failed. Please contact support.");
+              setAuthLoading(false);
+              return;
+            }
           }
           
           setOnboardingStep("step3");
         } catch (profileErr: any) {
           console.error("Profile creation exception:", profileErr);
-          setAuthError("Account created, but profile setup failed. Please contact support.");
+          setAuthError("Account created, but profile setup failed. Please log out and log back in.");
           setAuthLoading(false);
           return;
         }
