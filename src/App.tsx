@@ -1895,14 +1895,14 @@ function App() {
               Big Love,<br />Hybrid House Team
             </p>
 
-            <div className="text-sm mb-8 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
-              Check your email ({onboardingData.email}) to confirm your account before logging in.
-            </div>
-
             <button
               onClick={() => {
+                // Exit onboarding flow - if user is logged in, they'll see their profile
+                // If not logged in yet, they'll see the login screen
                 setOnboardingStep("login");
-                setEmail(onboardingData.email);
+                if (onboardingData.email) {
+                  setEmail(onboardingData.email);
+                }
               }}
               className="w-full rounded-3xl py-4.5 font-semibold text-white transition-all text-base"
               style={{ 
@@ -1914,7 +1914,7 @@ function App() {
                 borderRadius: "30px",
               }}
             >
-              Go to Login
+              Continue
             </button>
           </div>
         </div>
