@@ -1638,9 +1638,10 @@ function App() {
     }
   };
 
-  if (!authed) {
+  // Show onboarding steps even if authed (during signup flow)
+  if (!authed || onboardingStep === "step1" || onboardingStep === "step2" || onboardingStep === "step3") {
     // Login screen for existing users
-    if (onboardingStep === "login") {
+    if (onboardingStep === "login" && !authed) {
       return (
         <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
           <div className="mx-auto max-w-md px-6 pb-32" style={{ paddingTop: "50px" }}>
