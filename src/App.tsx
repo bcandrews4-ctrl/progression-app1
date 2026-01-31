@@ -1451,9 +1451,23 @@ function App() {
     setAuthLoading(true);
     setAuthError(null);
     setAuthMessage(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setAuthError(error.message);
+    
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        // Clean up error messages for better UX
+        let errorMessage = error.message;
+        if (errorMessage.includes("publishable") || errorMessage.includes("Invalid API key")) {
+          errorMessage = "Invalid API key configuration. Please contact support.";
+        } else if (errorMessage.includes("Invalid login credentials") || errorMessage.includes("Invalid")) {
+          errorMessage = "Invalid email or password";
+        } else if (errorMessage.includes("Email not confirmed")) {
+          errorMessage = "Please check your email and confirm your account before logging in.";
+        }
+        setAuthError(errorMessage);
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || "An error occurred. Please try again.");
     }
     setAuthLoading(false);
   };
@@ -1462,20 +1476,34 @@ function App() {
     setAuthLoading(true);
     setAuthError(null);
     setAuthMessage(null);
-    const { data, error } = await supabase.auth.signUp({ 
-      email: onboardingData.email, 
-      password: onboardingData.password 
-    });
-    if (error) {
-      setAuthError(error.message);
-      setAuthLoading(false);
-      return;
-    }
-    if (data.user) {
-      const defaultData = buildEmptyData();
-      defaultData.focus = onboardingData.goal;
-      await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
-      setOnboardingStep("step3");
+    
+    try {
+      const { data, error } = await supabase.auth.signUp({ 
+        email: onboardingData.email, 
+        password: onboardingData.password 
+      });
+      if (error) {
+        // Clean up error messages for better UX
+        let errorMessage = error.message;
+        if (errorMessage.includes("publishable") || errorMessage.includes("Invalid API key")) {
+          errorMessage = "Invalid API key configuration. Please contact support.";
+        } else if (errorMessage.includes("User already registered") || errorMessage.includes("already registered")) {
+          errorMessage = "An account with this email already exists. Please log in instead.";
+        } else if (errorMessage.includes("Password")) {
+          errorMessage = "Password must be at least 6 characters long.";
+        }
+        setAuthError(errorMessage);
+        setAuthLoading(false);
+        return;
+      }
+      if (data.user) {
+        const defaultData = buildEmptyData();
+        defaultData.focus = onboardingData.goal;
+        await supabase.from("profiles").upsert({ id: data.user.id, data: defaultData });
+        setOnboardingStep("step3");
+      }
+    } catch (err: any) {
+      setAuthError(err?.message || "An error occurred. Please try again.");
     }
     setAuthLoading(false);
   };
