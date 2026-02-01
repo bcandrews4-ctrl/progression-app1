@@ -37,6 +37,7 @@ import { HealthMetricTile } from "./components/HealthMetricTile";
 import { AppLayout } from "./components/AppLayout";
 import { ToastContainer } from "./components/Toast";
 import { useToast } from "./hooks/useToast";
+import { MetricCardHeader } from "./components/MetricCardHeader";
 
 type TrainingFocus = "STRENGTH" | "HYPERTROPHY" | "HYBRID";
 
@@ -3412,47 +3413,61 @@ function App() {
                     {/* Top Row: Steps, Sleep, Heart - 3 columns */}
                     <div className="grid grid-cols-3 gap-2.5">
                       {/* Steps Card */}
-                      <div className="relative" style={{ 
+                      <div style={{ 
                         background: "var(--surface)", 
                         border: "var(--border)", 
                         borderRadius: "var(--card-radius)",
                         padding: "var(--card-pad)",
                         boxShadow: "var(--shadow)",
-                        minHeight: "100px" 
+                        minHeight: "100px",
+                        display: "flex",
+                        flexDirection: "column",
                       }}>
-                        <div className="flex items-center gap-1 mb-2" style={{ position: "relative", zIndex: 1 }}>
-                          <Footprints className="w-[150px] h-[150px]" width={150} height={150} stroke={ACCENT} strokeWidth={2.5} style={{ opacity: 0.95 }} />
-                          <div className="text-[9px] font-medium" style={{ color: MUTED }}>Steps</div>
-                        </div>
-                        <div className="absolute" style={{ left: "14px", bottom: "14px", width: "44px", height: "44px", zIndex: 0 }}>
-                          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56" style={{ display: "block", width: "44px", height: "44px" }}>
-                            <circle
-                              cx="28"
-                              cy="28"
-                              r="22"
-                              fill="none"
-                              stroke="rgba(255,255,255,0.08)"
-                              strokeWidth="4"
-                            />
-                            <circle
-                              cx="28"
-                              cy="28"
-                              r="22"
-                              fill="none"
-                              stroke={ACCENT}
-                              strokeWidth="4"
-                              strokeDasharray={`${2 * Math.PI * 22}`}
-                              strokeDashoffset={`${2 * Math.PI * 22 * (1 - stepsProgress)}`}
-                              strokeLinecap="round"
-                              style={{ transition: "stroke-dashoffset 0.5s ease" }}
-                            />
-                          </svg>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
-                            <div className="text-xs font-bold leading-tight" style={{ color: TEXT }}>
-                              {latest?.steps.toLocaleString() || "0"}
-                            </div>
-                            <div className="text-[7px] mt-0.5" style={{ color: MUTED }}>
-                              {Math.round(stepsProgress * 100)}%
+                        {/* Header with icon and title */}
+                        <MetricCardHeader
+                          icon={
+                            <Footprints className="w-7 h-7" stroke={ACCENT} strokeWidth={2.5} />
+                          }
+                          title="Steps"
+                        />
+                        {/* Body with progress ring */}
+                        <div style={{ 
+                          flex: 1, 
+                          display: "flex", 
+                          alignItems: "center", 
+                          justifyContent: "center",
+                          marginTop: "8px",
+                        }}>
+                          <div style={{ position: "relative", width: "44px", height: "44px" }}>
+                            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56" style={{ display: "block", width: "44px", height: "44px" }}>
+                              <circle
+                                cx="28"
+                                cy="28"
+                                r="22"
+                                fill="none"
+                                stroke="rgba(255,255,255,0.08)"
+                                strokeWidth="4"
+                              />
+                              <circle
+                                cx="28"
+                                cy="28"
+                                r="22"
+                                fill="none"
+                                stroke={ACCENT}
+                                strokeWidth="4"
+                                strokeDasharray={`${2 * Math.PI * 22}`}
+                                strokeDashoffset={`${2 * Math.PI * 22 * (1 - stepsProgress)}`}
+                                strokeLinecap="round"
+                                style={{ transition: "stroke-dashoffset 0.5s ease" }}
+                              />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
+                              <div className="text-xs font-bold leading-tight" style={{ color: TEXT }}>
+                                {latest?.steps.toLocaleString() || "0"}
+                              </div>
+                              <div className="text-[7px] mt-0.5" style={{ color: MUTED }}>
+                                {Math.round(stepsProgress * 100)}%
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -3466,12 +3481,16 @@ function App() {
                         padding: "var(--card-pad)",
                         boxShadow: "var(--shadow)",
                       }}>
-                        <div className="flex items-center gap-1 mb-2">
-                          <svg className="w-[150px] h-[35px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
-                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" style={{ width: "25px", height: "25px" }} />
-                          </svg>
-                          <div className="text-[9px] font-medium" style={{ color: MUTED }}>Sleep</div>
-                        </div>
+                        {/* Header with icon and title */}
+                        <MetricCardHeader
+                          icon={
+                            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                            </svg>
+                          }
+                          title="Sleep"
+                        />
+                        <div style={{ marginTop: "8px" }}>
                         {latest?.sleepStages && latest.sleepStages.length > 0 ? (
                           <div className="h-14 mb-1.5" style={{ width: "100%" }}>
                             <ResponsiveContainer width="100%" height={56}>
@@ -3554,6 +3573,7 @@ function App() {
                             {latest?.sleepHours.toFixed(1) || "0.0"}h
                           </div>
                         </div>
+                        </div>
                       </div>
 
                       {/* Heart Rate Card */}
@@ -3564,12 +3584,16 @@ function App() {
                         padding: "var(--card-pad)",
                         boxShadow: "var(--shadow)",
                       }}>
-                        <div className="flex items-center gap-1 mb-2">
-                          <svg className="w-[150px] h-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                          </svg>
-                          <div className="text-[9px] font-medium" style={{ color: MUTED }}>Heart</div>
-                        </div>
+                        {/* Header with icon and title */}
+                        <MetricCardHeader
+                          icon={
+                            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                            </svg>
+                          }
+                          title="Heart"
+                        />
+                        <div style={{ marginTop: "8px" }}>
                         <div className="h-14 mb-1.5 flex items-center justify-center overflow-hidden">
                           <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
                             <polyline
@@ -3591,6 +3615,7 @@ function App() {
                           <div className="text-xs font-bold" style={{ color: TEXT }}>
                             {latest?.avgBPM || 0} bpm
                           </div>
+                        </div>
                         </div>
                       </div>
                     </div>
