@@ -1968,11 +1968,17 @@ function App() {
 
           // Now try to create/update profile with established session
           const defaultData = buildEmptyData();
+          // CRITICAL: New profiles should have onboarding_complete=false
+          const profileDataWithOnboarding = {
+            ...defaultData,
+            onboarding_complete: false,
+          };
+          console.log('[Signup] Creating profile with onboarding_complete=false');
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .upsert({ 
               id: data.user.id, 
-              data: defaultData 
+              data: profileDataWithOnboarding 
             }, {
               onConflict: 'id'
             })
