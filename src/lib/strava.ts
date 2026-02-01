@@ -89,7 +89,8 @@ export async function connectStrava(): Promise<void> {
   if (!session) throw new Error('Not authenticated');
 
   const token = session.access_token;
-  const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
+  // Always use custom domain from env, fallback to production domain
+  const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_APP_URL || 'https://hybrid-house-journal.tech';
   const connectUrl = `${apiUrl}/api/strava/connect?token=${encodeURIComponent(token)}`;
 
   // Redirect to connect endpoint
@@ -104,7 +105,8 @@ export async function syncStrava(): Promise<{ importedCount: number; updatedCoun
   if (!session) throw new Error('Not authenticated');
 
   const token = session.access_token;
-  const apiUrl = import.meta.env.VITE_API_URL || window.location.origin;
+  // Always use custom domain from env, fallback to production domain
+  const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_APP_URL || 'https://hybrid-house-journal.tech';
   const syncUrl = `${apiUrl}/api/strava/sync`;
 
   const response = await fetch(syncUrl, {

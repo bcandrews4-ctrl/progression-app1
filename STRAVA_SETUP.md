@@ -55,7 +55,13 @@ Add these environment variables in Vercel Dashboard → Settings → Environment
    - **Important**: This is the single source of truth for post-OAuth redirects
    - Always redirects users back to production domain, never preview URLs
 
-5. **SUPABASE_SERVICE_ROLE_KEY**
+5. **VITE_API_URL** (Optional but recommended)
+   - Value: `https://hybrid-house-journal.tech`
+   - Environments: Production, Preview, Development
+   - **Important**: Ensures API calls always use custom domain, never Vercel preview URLs
+   - If not set, code will fallback to production domain
+
+6. **SUPABASE_SERVICE_ROLE_KEY**
    - Value: Your Supabase service role key (from Supabase Dashboard → Settings → API)
    - Environments: Production, Preview, Development
    - **Important**: This is different from the anon key - it's the service role key that bypasses RLS
