@@ -2095,9 +2095,17 @@ function App() {
 
     useEffect(() => {
       const checkProfile = async () => {
-        if (!session?.user.id) {
+        // Wait for session loading to complete
+        if (sessionLoading) {
+          console.log('[Welcome] Waiting for session to load...');
+          return;
+        }
+
+        // If no session, immediately redirect to auth
+        if (!session?.user?.id) {
           console.log('[Welcome] No session, redirecting to auth');
           setMode("AUTH");
+          setLoading(false);
           return;
         }
 
