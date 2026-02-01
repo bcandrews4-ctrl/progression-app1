@@ -1131,19 +1131,27 @@ function App() {
       const pendingGoal = localStorage.getItem(`pending_goal_${userId}`);
       
       if (profileError || !profileData) {
+        console.log('[ProfileLoader] Profile not found, creating default profile');
         // Profile doesn't exist - create it
         const defaultData = buildEmptyData();
         if (pendingGoal) {
+          console.log('[ProfileLoader] Applying pending goal:', pendingGoal);
           defaultData.focus = pendingGoal as TrainingFocus;
           localStorage.removeItem(`pending_goal_${userId}`);
         }
-        await supabase.from("profiles").upsert({ 
+        const { error: upsertError } = await supabase.from("profiles").upsert({ 
           id: userId, 
           data: defaultData
         });
+        if (upsertError) {
+          console.error('[ProfileLoader] Failed to create profile:', upsertError);
+        } else {
+          console.log('[ProfileLoader] Profile created successfully');
+        }
         applyUserData(defaultData);
         setProfileTrainingFocus(defaultData.focus || null);
       } else {
+        console.log('[ProfileLoader] Profile found, loading data');
         const userData = profileData.data as UserData | null;
         // Check training_focus from data.focus
         const trainingFocus = userData?.focus || null;
@@ -1160,11 +1168,13 @@ function App() {
           applyUserData(updatedData);
         } else {
           if (userData) {
-        applyUserData(userData);
+            applyUserData(userData);
           }
           setProfileTrainingFocus(trainingFocus);
+          console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus);
         }
       }
+      console.log('[ProfileLoader] Data loading complete');
       setDataLoaded(true);
     };
 
@@ -1789,13 +1799,26 @@ function App() {
         }
         
         if (data.user) {
-          // Ensure profile is created
+          console.log('[Signup] User created:', data.user.id);
+          
+          // Ensure profile is created BEFORE navigation
           const defaultData = buildEmptyData();
-          await supabase.from("profiles").upsert({ 
+          const { error: profileError } = await supabase.from("profiles").upsert({ 
             id: data.user.id, 
             data: defaultData 
           });
+
+          if (profileError) {
+            console.error('[Signup] Profile creation error:', profileError);
+            setAuthError('Failed to create profile. Please try again.');
+            setAuthLoading(false);
+            return;
+          }
+
+          console.log('[Signup] Profile created successfully');
           
+          // Wait a moment for session to be established
+          // The auth state change will trigger mode transition
           // Mode will automatically transition to ONBOARDING_FOCUS 
           // when session is established and profileTrainingFocus is null
         }
@@ -1867,26 +1890,72 @@ function App() {
 
       try {
         // Update profile with training_focus in data JSON
+        console.log('[TrainingFocus] Saving focus:', selectedFocus);
+        
         const currentData = buildUserData();
         currentData.focus = selectedFocus;
-        const { error } = await supabase
+        
+        // First, ensure profile exists
+        const { data: existingProfile } = await supabase
           .from("profiles")
-          .update({ 
-            data: currentData
-          })
-          .eq("id", session.user.id);
+          .select("id")
+          .eq("id", session.user.id)
+          .single();
 
-        if (error) {
-          setSaveError("Failed to save training focus. Please try again.");
+        if (!existingProfile) {
+          console.log('[TrainingFocus] Profile not found, creating...');
+          const { error: createError } = await supabase.from("profiles").upsert({ 
+            id: session.user.id, 
+            data: currentData
+          });
+
+          if (createError) {
+            console.error('[TrainingFocus] Profile creation error:', createError);
+            setSaveError("Failed to save training focus. Please try again.");
+            setSaving(false);
+            return;
+          }
+          console.log('[TrainingFocus] Profile created');
+        } else {
+          // Update existing profile
+          const { error } = await supabase
+            .from("profiles")
+            .update({ 
+              data: currentData
+            })
+            .eq("id", session.user.id);
+
+          if (error) {
+            console.error('[TrainingFocus] Profile update error:', error);
+            setSaveError("Failed to save training focus. Please try again.");
+            setSaving(false);
+            return;
+          }
+          console.log('[TrainingFocus] Profile updated');
+        }
+
+        // Verify the update was successful
+        const { data: verifyData } = await supabase
+          .from("profiles")
+          .select("data")
+          .eq("id", session.user.id)
+          .single();
+
+        if (!verifyData) {
+          console.error('[TrainingFocus] Verification failed - profile not found after update');
+          setSaveError("Failed to verify save. Please try again.");
           setSaving(false);
           return;
         }
+
+        console.log('[TrainingFocus] Profile verified, updating local state');
 
         // Update local state
         setFocus(selectedFocus);
         setProfileTrainingFocus(selectedFocus);
         
-        // Move to welcome screen
+        // Move to welcome screen AFTER profile is confirmed saved
+        console.log('[TrainingFocus] Navigating to welcome screen');
         setMode("WELCOME");
       } catch (err: any) {
         setSaveError(err?.message || "An error occurred. Please try again.");
@@ -1972,6 +2041,115 @@ function App() {
   }
 
   function WelcomeScreen() {
+    const [loading, setLoading] = useState(true);
+    const [profileExists, setProfileExists] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+      const checkProfile = async () => {
+        if (!session?.user.id) {
+          console.log('[Welcome] No session, redirecting to auth');
+          setMode("AUTH");
+          return;
+        }
+
+        setLoading(true);
+        console.log('[Welcome] Checking profile for user:', session.user.id);
+
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .select("id, data")
+            .eq("id", session.user.id)
+            .single();
+
+          if (profileError && profileError.code !== 'PGRST116') {
+            // PGRST116 is "not found" which is OK, we'll create it
+            console.error('[Welcome] Profile fetch error:', profileError);
+            setError('Failed to load profile. Please refresh.');
+            setLoading(false);
+            return;
+          }
+
+          if (!profileData) {
+            console.log('[Welcome] Profile not found, creating...');
+            // Profile doesn't exist - create it
+            const defaultData = buildEmptyData();
+            const { error: upsertError } = await supabase.from("profiles").upsert({ 
+              id: session.user.id, 
+              data: defaultData
+            });
+
+            if (upsertError) {
+              console.error('[Welcome] Profile creation error:', upsertError);
+              setError('Failed to create profile. Please refresh.');
+              setLoading(false);
+              return;
+            }
+
+            console.log('[Welcome] Profile created successfully');
+            setProfileExists(true);
+          } else {
+            console.log('[Welcome] Profile exists');
+            setProfileExists(true);
+          }
+        } catch (err: any) {
+          console.error('[Welcome] Unexpected error:', err);
+          setError('An error occurred. Please refresh.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      checkProfile();
+    }, [session?.user.id]);
+
+    // Show loading state
+    if (loading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-t-transparent rounded-full mx-auto mb-4 animate-spin" style={{ 
+              borderColor: ACCENT,
+              borderTopColor: 'transparent',
+            }} />
+            <p className="text-sm" style={{ color: MUTED }}>Loading...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Show error state
+    if (error) {
+      return (
+        <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+          <div className="w-full max-w-[480px] px-6 text-center">
+            <GlassCard className="space-y-4">
+              <p className="text-base" style={{ color: colors.text }}>{error}</p>
+              <PrimaryButton 
+                onClick={() => window.location.reload()}
+                style={{ height: "56px", borderRadius: radii.xl }}
+              >
+                Refresh
+              </PrimaryButton>
+            </GlassCard>
+          </div>
+        </div>
+      );
+    }
+
+    // No session - should redirect but show message
+    if (!session?.user.id) {
+      return (
+        <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+          <div className="text-center">
+            <p className="text-sm" style={{ color: MUTED }}>Redirecting to login...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Show welcome message
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
         <div className="w-full max-w-[480px] px-6">
@@ -1979,6 +2157,7 @@ function App() {
             <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center" style={{ 
               background: colors.accentSoft,
               border: `1px solid ${colors.accentBorder}`,
+              boxShadow: shadows.glow,
             }}>
               <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -1987,7 +2166,7 @@ function App() {
             <h1 className="text-3xl font-semibold mb-4" style={typography.title}>You're all set</h1>
           </div>
 
-          <GlassCard className="space-y-4 mb-6">
+          <GlassCard className="space-y-4 mb-6" glow>
             <p className="text-base leading-relaxed text-center" style={{ color: colors.text }}>
               We can't wait to see your progress over the next 8 weeks!
             </p>
@@ -1995,15 +2174,16 @@ function App() {
               Reminder to book those classes in and stay consistent.
             </p>
             <p className="text-base leading-relaxed text-center mt-4" style={{ color: colors.text }}>
-              Big Love from the Hybrid House Team!
+              Big love from the Hybrid House Team!
             </p>
           </GlassCard>
 
           <PrimaryButton 
             onClick={() => {
+              console.log('[Welcome] Access Profile clicked');
               setWelcomeSeen(true);
               setMode("APP");
-              setTab("Profile");
+              setTab("Overview");
             }}
             style={{ height: "56px", borderRadius: radii.xl }}
           >
@@ -2114,18 +2294,36 @@ function App() {
   // Old onboarding code removed - now using mode-based rendering
   // All onboarding screens are now handled by mode state machine above
 
+  // Full screen loader component
+  function FullScreenLoader({ message = "Loading..." }: { message?: string }) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-t-transparent rounded-full mx-auto mb-4 animate-spin" style={{ 
+            borderColor: ACCENT,
+            borderTopColor: 'transparent',
+          }} />
+          <p className="text-sm" style={{ color: MUTED }}>{message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while session is initializing
+  if (sessionLoading) {
+    return <FullScreenLoader message="Initializing..." />;
+  }
+
+  // Show loading state while data is loading (but only if we have a session)
+  if (session?.user && !dataLoaded && mode === "APP") {
+    return <FullScreenLoader message="Loading your account..." />;
+  }
+
   // Mode === "APP" - render main app
   if (mode !== "APP") {
     // This should never be reached as all modes are handled above
-    return null;
-  }
-
-  if (!dataLoaded) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
-        Loading your account...
-      </div>
-    );
+    // But if it is, show loading instead of blank
+    return <FullScreenLoader message="Loading..." />;
   }
 
   // Header component
