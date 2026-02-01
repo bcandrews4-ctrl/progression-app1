@@ -56,6 +56,7 @@ type DateRange = "30" | "90" | "365";
 type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Profile";
 
 type AppMode = "AUTH" | "ONBOARDING_FOCUS" | "WELCOME" | "APP";
+type OnboardingStep = "signup" | "focus" | "welcome" | "app";
 
 type LiftEntry = {
   id: string;
@@ -992,6 +993,8 @@ function App() {
   const [mode, setMode] = useState<AppMode>("AUTH");
   const [welcomeSeen, setWelcomeSeen] = useState(false);
   const [profileTrainingFocus, setProfileTrainingFocus] = useState<TrainingFocus | null>(null);
+  const [onboardingComplete, setOnboardingComplete] = useState<boolean>(false);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("90");
 
@@ -1133,26 +1136,27 @@ function App() {
       return;
     }
 
-    // If data is still loading, wait (but we have a session)
-    if (!dataLoaded) {
+    // If profile is still loading, wait (but we have a session)
+    if (profileLoading || !dataLoaded) {
       return;
     }
 
-    // If profile training_focus is missing or null, show onboarding
-    if (!profileTrainingFocus) {
-      setMode("ONBOARDING_FOCUS");
-      return;
-    }
-
-    // If welcome hasn't been seen, show welcome screen
-    if (!welcomeSeen) {
+    // CRITICAL: Check onboarding_complete first
+    // If onboarding is not complete, show onboarding steps
+    if (!onboardingComplete) {
+      // If training_focus is missing or null, show focus selection
+      if (!profileTrainingFocus) {
+        setMode("ONBOARDING_FOCUS");
+        return;
+      }
+      // If training_focus exists but onboarding not complete, show welcome
       setMode("WELCOME");
       return;
     }
 
     // Otherwise, show the app
     setMode("APP");
-  }, [session, sessionLoading, dataLoaded, profileTrainingFocus, welcomeSeen]);
+  }, [session, sessionLoading, dataLoaded, profileLoading, profileTrainingFocus, onboardingComplete]);
 
   // Safe profile loading - only runs with valid authenticated session
   useEffect(() => {
@@ -1173,6 +1177,7 @@ function App() {
 
     const userId = session.user.id;
     console.log('[ProfileLoader] Starting profile load for user:', userId);
+    setProfileLoading(true);
 
     let cancelled = false;
     const loadProfile = async () => {
@@ -1226,12 +1231,19 @@ function App() {
           localStorage.removeItem(`pending_goal_${userId}`);
         }
 
-        console.log('[ProfileLoader] Upserting profile with id:', userId);
+        // CRITICAL: New profiles should have onboarding_complete=false
+        // Store onboarding_complete in data JSON
+        const profileDataWithOnboarding = {
+          ...defaultData,
+          onboarding_complete: false,
+        };
+
+        console.log('[ProfileLoader] Upserting profile with id:', userId, 'onboarding_complete:', false);
         const { data: createdProfile, error: upsertError } = await supabase
           .from("profiles")
           .upsert({ 
             id: userId, 
-            data: defaultData
+            data: profileDataWithOnboarding
           }, {
             onConflict: 'id'
           })
@@ -1262,12 +1274,17 @@ function App() {
         if (!cancelled) {
           applyUserData(defaultData);
           setProfileTrainingFocus(defaultData.focus || null);
+          // New profile: onboarding not complete
+          setOnboardingComplete(false);
         }
       } else {
         console.log('[ProfileLoader] Profile found, loading data');
-        const userData = profileData.data as UserData | null;
+        const userData = profileData.data as any; // Allow onboarding_complete in data
         // Check training_focus from data.focus
         const trainingFocus = userData?.focus || null;
+        // Check onboarding_complete from data (default to false if not set)
+        const onboardingComplete = userData?.onboarding_complete ?? false;
+        console.log('[ProfileLoader] onboarding_complete:', onboardingComplete);
         
         // If profile exists but has no focus and we have a pending goal, update it
         if (pendingGoal && !trainingFocus) {
@@ -1284,10 +1301,13 @@ function App() {
         } else {
           if (!cancelled) {
             if (userData) {
-              applyUserData(userData);
+              // Extract onboarding_complete before applying (it's not part of UserData type)
+              const { onboarding_complete: _, ...userDataWithoutOnboarding } = userData;
+              applyUserData(userDataWithoutOnboarding as UserData);
             }
             setProfileTrainingFocus(trainingFocus);
-            console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus);
+            setOnboardingComplete(onboardingComplete);
+            console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus, 'onboarding_complete:', onboardingComplete);
           }
         }
       }
@@ -1295,6 +1315,7 @@ function App() {
       if (!cancelled) {
         console.log('[ProfileLoader] Data loading complete');
         setDataLoaded(true);
+        setProfileLoading(false);
       }
     };
 
@@ -2122,6 +2143,21 @@ function App() {
         setFocus(selectedFocus);
         setProfileTrainingFocus(selectedFocus);
         
+        // CRITICAL: Set onboarding_complete=false (user still needs to see welcome)
+        // Update profile with onboarding_complete=false
+        const updatedDataWithOnboarding = {
+          ...currentData,
+          onboarding_complete: false,
+        };
+        await supabase
+          .from("profiles")
+          .update({ 
+            data: updatedDataWithOnboarding
+          })
+          .eq("id", session.user.id);
+        
+        setOnboardingComplete(false);
+        
         // Move to welcome screen AFTER profile is confirmed saved
         console.log('[TrainingFocus] Navigating to welcome screen');
         setMode("WELCOME");
@@ -2270,12 +2306,17 @@ function App() {
             }
 
             const defaultData = buildEmptyData();
+            // New profile should have onboarding_complete=false
+            const profileDataWithOnboarding = {
+              ...defaultData,
+              onboarding_complete: false,
+            };
             console.log('[Welcome] Upserting profile with id:', userId);
             const { data: createdProfile, error: upsertError } = await supabase
               .from("profiles")
               .upsert({ 
                 id: userId, 
-                data: defaultData
+                data: profileDataWithOnboarding
               }, {
                 onConflict: 'id'
               })
@@ -2441,11 +2482,50 @@ function App() {
           </GlassCard>
 
           <PrimaryButton 
-            onClick={() => {
+            onClick={async () => {
               console.log('[Welcome] Access Profile clicked');
-              setWelcomeSeen(true);
-              setMode("APP");
-              setTab("Overview");
+              
+              if (!session?.user?.id) {
+                console.error('[Welcome] No session when clicking Access Profile');
+                setMode("AUTH");
+                return;
+              }
+
+              // Update profile to set onboarding_complete=true
+              try {
+                const currentData = buildUserData();
+                const updatedData = {
+                  ...currentData,
+                  onboarding_complete: true,
+                };
+                
+                const { error } = await supabase
+                  .from("profiles")
+                  .update({ 
+                    data: updatedData
+                  })
+                  .eq("id", session.user.id);
+
+                if (error) {
+                  console.error('[Welcome] Failed to update onboarding_complete:', error);
+                  // Still proceed to app even if update fails
+                } else {
+                  console.log('[Welcome] onboarding_complete set to true');
+                }
+
+                // Update local state
+                setOnboardingComplete(true);
+                setWelcomeSeen(true);
+                setTab("Overview");
+                setMode("APP");
+              } catch (err: any) {
+                console.error('[Welcome] Error updating onboarding_complete:', err);
+                // Still proceed to app
+                setOnboardingComplete(true);
+                setWelcomeSeen(true);
+                setTab("Overview");
+                setMode("APP");
+              }
             }}
             style={{ height: "56px", borderRadius: radii.xl }}
           >
