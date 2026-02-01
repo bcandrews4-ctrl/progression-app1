@@ -17,6 +17,15 @@ import {
 
 import { colors, radii, shadows, gradients, typography } from "./styles/tokens";
 import { supabase } from "./lib/supabase";
+import { 
+  fetchStravaConnection, 
+  connectStrava, 
+  syncStrava, 
+  disconnectStrava, 
+  fetchStravaActivities,
+  mapStravaTypeToCategory,
+  type StravaActivity 
+} from "./lib/strava";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -1002,6 +1011,15 @@ function App() {
   const [progressTimeRange, setProgressTimeRange] = useState<"Week" | "Month" | "All-time">("All-time");
 
   const [modal, setModal] = useState<null | { type: "ADD" | "LIFT" | "CARDIO" | "RUN" }>(null);
+  
+  // --- Strava integration
+  const [stravaConnection, setStravaConnection] = useState<{
+    athlete_name: string | null;
+    last_sync_at: string | null;
+  } | null>(null);
+  const [stravaActivities, setStravaActivities] = useState<any[]>([]);
+  const [stravaLoading, setStravaLoading] = useState(false);
+  const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
 
   // --- Auth & Onboarding
   const [email, setEmail] = useState("");
@@ -1172,6 +1190,56 @@ function App() {
     };
   }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded]);
 
+  // --- Load Strava connection and activities
+  useEffect(() => {
+    if (!session?.user.id) {
+      setStravaConnection(null);
+      setStravaActivities([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadStrava = async () => {
+      try {
+        const connection = await fetchStravaConnection();
+        if (cancelled) return;
+        setStravaConnection(connection ? {
+          athlete_name: connection.athlete_name,
+          last_sync_at: connection.last_sync_at,
+        } : null);
+
+        if (connection) {
+          const activities = await fetchStravaActivities();
+          if (!cancelled) {
+            setStravaActivities(activities);
+          }
+        } else {
+          setStravaActivities([]);
+        }
+        
+        // Check for URL params (from OAuth callback)
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connected') === 'strava') {
+          // Show success (you could add a toast here)
+          // Clean URL
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      } catch (error) {
+        console.error('Error loading Strava:', error);
+        if (!cancelled) {
+          setStravaConnection(null);
+          setStravaActivities([]);
+        }
+      }
+    };
+
+    loadStrava();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
+
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
   const [liftReps, setLiftReps] = useState("");
@@ -1230,15 +1298,26 @@ function App() {
   }, [range]);
 
   const overviewSeries = useMemo(
-    () =>
-      buildOverviewSeries({
+    () => {
+      // Convert Strava activities to imported format for series
+      const stravaAsImported = stravaActivities.map((a) => ({
+        id: `strava-${a.id}`,
+        dateISO: a.start_date.split('T')[0],
+        source: 'Strava',
+        workoutType: mapStravaTypeToCategory(a.type) === 'Running' ? 'Run' : 'Cardio',
+        minutes: a.moving_time / 60,
+        activeCalories: a.calories ?? null,
+      }));
+      
+      return buildOverviewSeries({
         rangeDays,
         lifts,
         cardio,
         runs,
-        imported,
-      }),
-    [rangeDays, lifts, cardio, runs, imported]
+        imported: [...imported, ...stravaAsImported],
+      });
+    },
+    [rangeDays, lifts, cardio, runs, imported, stravaActivities]
   );
 
   const stats = useMemo(() => {
@@ -1246,13 +1325,27 @@ function App() {
     const cardioInRange = cardio.filter((x) => withinLastDays(x.dateISO, rangeDays));
     const runsInRange = runs.filter((x) => withinLastDays(x.dateISO, rangeDays));
     const importedInRange = imported.filter((x) => withinLastDays(x.dateISO, rangeDays));
+    
+    // Filter Strava activities by date range
+    const stravaInRange = stravaActivities.filter((a) => {
+      const dateISO = a.start_date.split('T')[0];
+      return withinLastDays(dateISO, rangeDays);
+    });
 
-    const workouts = liftsInRange.length + cardioInRange.length + runsInRange.length + importedInRange.length;
+    const workouts = liftsInRange.length + cardioInRange.length + runsInRange.length + importedInRange.length + stravaInRange.length;
     const liftedTons = calcLiftedTonnage(liftsInRange);
     const reps = sum(liftsInRange, (l) => l.reps);
     const heaviest = calcHeaviest(liftsInRange);
-    const minutes = sum(importedInRange, (w) => w.minutes);
-    const activeCals = sum(importedInRange, (w) => w.activeCalories ?? 0);
+    
+    // Sum time: imported minutes + Strava moving_time (convert to minutes)
+    const importedMinutes = sum(importedInRange, (w) => w.minutes);
+    const stravaMinutes = sum(stravaInRange, (a) => a.moving_time / 60);
+    const minutes = importedMinutes + stravaMinutes;
+    
+    // Sum calories: imported + Strava
+    const importedCals = sum(importedInRange, (w) => w.activeCalories ?? 0);
+    const stravaCals = sum(stravaInRange, (a) => a.calories ?? 0);
+    const activeCals = importedCals + stravaCals;
 
     return {
       workouts,
@@ -1262,7 +1355,7 @@ function App() {
       timeHrs: minutes / 60,
       activeCals,
     };
-  }, [lifts, cardio, runs, imported, rangeDays]);
+  }, [lifts, cardio, runs, imported, stravaActivities, rangeDays]);
 
   const groupedLifts = useMemo(() => {
     const groups = new Map<LiftType, LiftEntry[]>();
@@ -1360,17 +1453,96 @@ function App() {
       });
     }
 
+    // Add Strava activities
+    for (const activity of stravaActivities) {
+      const category = mapStravaTypeToCategory(activity.type);
+      const dateISO = activity.start_date.split('T')[0]; // Extract date part
+      
+      // Format display based on activity type
+      let title = activity.name || activity.type;
+      let subtitle = `${formatDateShort(dateISO)}`;
+      let right = '';
+      
+      if (category === 'Running' && activity.distance_m) {
+        const distKm = activity.distance_m / 1000;
+        const timeMin = activity.moving_time / 60;
+        const pace = timeMin / distKm;
+        subtitle += ` • ${distKm.toFixed(2)}km • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        right = `${Math.floor(pace)}:${String(Math.floor((pace % 1) * 60)).padStart(2, '0')}/km`;
+      } else if (category === 'Cardio') {
+        const timeMin = activity.moving_time / 60;
+        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        if (activity.calories) {
+          right = `${activity.calories} cal`;
+        } else if (activity.average_heartrate) {
+          right = `HR ${Math.round(activity.average_heartrate)}`;
+        } else {
+          right = activity.type;
+        }
+      } else {
+        const timeMin = activity.moving_time / 60;
+        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        right = activity.type;
+      }
+
+      const onClickFn = category === 'Running' ? () => {
+        setSelectedRunDistance(activity.distance_m ? Math.round(activity.distance_m) : 800);
+        setTab("Progress");
+        setProgressFilter("Running");
+      } : category === 'Cardio' ? () => {
+        // Could navigate to cardio progress if needed
+      } : undefined;
+
+      if (category === 'Running') {
+        items.push({
+          type: 'run' as const,
+          dateISO,
+          title,
+          subtitle,
+          right,
+          key: `strava-${activity.id}`,
+          onClick: onClickFn!,
+        });
+      } else if (category === 'Cardio') {
+        items.push({
+          type: 'cardio' as const,
+          dateISO,
+          title,
+          subtitle,
+          right,
+          key: `strava-${activity.id}`,
+          onClick: onClickFn!,
+        });
+      } else {
+        items.push({
+          type: 'import' as const,
+          dateISO,
+          title,
+          subtitle,
+          right,
+          key: `strava-${activity.id}`,
+        });
+      }
+    }
+
     items.sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
 
     const filtered = items.filter((it) => {
       if (journalTab === "All") return true;
       if (journalTab === "Lifts") return false; // Handled separately with grouped view
-      if (journalTab === "Cardio") return false; // Handled separately with grouped view
-      return it.type === "run";
+      if (journalTab === "Cardio") {
+        // Include cardio items and Strava activities mapped to Cardio
+        return it.type === "cardio" || (it.key?.startsWith('strava-') && it.type === "cardio");
+      }
+      if (journalTab === "Running") {
+        // Include runs and Strava activities mapped to Running
+        return it.type === "run" || (it.key?.startsWith('strava-') && it.type === "run");
+      }
+      return false;
     });
 
     return filtered;
-  }, [lifts, cardio, runs, imported, journalTab]);
+  }, [lifts, cardio, runs, imported, stravaActivities, journalTab]);
 
   const liftSeries = useMemo(() => {
     const rangeDays = progressTimeRange === "Week" ? 7 : progressTimeRange === "Month" ? 30 : 9999;
@@ -3077,6 +3249,106 @@ function App() {
                   v1: these are UI toggles only (sync stub).
                 </div>
               </Card>
+
+              <GlassCard>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-base font-semibold" style={{ color: TEXT }}>
+                      Strava
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+                      {stravaConnection 
+                        ? `Connected to Strava${stravaConnection.athlete_name ? ` • ${stravaConnection.athlete_name}` : ''}`
+                        : 'Import runs and cardio sessions'}
+                    </div>
+                  </div>
+                </div>
+
+                {stravaConnection ? (
+                  <div className="space-y-3">
+                    <div className="text-xs" style={{ color: MUTED }}>
+                      {stravaConnection.last_sync_at 
+                        ? `Last sync: ${formatDateShort(stravaConnection.last_sync_at.split('T')[0])}`
+                        : 'Never synced'}
+                    </div>
+                    <div className="flex gap-2">
+                      <PrimaryButton
+                        onClick={async () => {
+                          setStravaSyncLoading(true);
+                          try {
+                            const result = await syncStrava();
+                            // Reload connection and activities
+                            const connection = await fetchStravaConnection();
+                            setStravaConnection(connection ? {
+                              athlete_name: connection.athlete_name,
+                              last_sync_at: connection.last_sync_at,
+                            } : null);
+                            const activities = await fetchStravaActivities();
+                            setStravaActivities(activities);
+                            // Show success toast
+                            alert(`Synced! Imported ${result.importedCount} new activities, updated ${result.updatedCount}.`);
+                          } catch (error: any) {
+                            if (error.message?.includes('Rate limit')) {
+                              alert('Rate limit reached. Please try again later.');
+                            } else {
+                              alert(`Sync failed: ${error.message || 'Unknown error'}`);
+                            }
+                          } finally {
+                            setStravaSyncLoading(false);
+                          }
+                        }}
+                        disabled={stravaSyncLoading}
+                      >
+                        {stravaSyncLoading ? 'Syncing...' : 'Sync now'}
+                      </PrimaryButton>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Disconnect Strava? Your imported activities will remain.')) return;
+                          try {
+                            await disconnectStrava();
+                            setStravaConnection(null);
+                            // Keep activities - don't clear them
+                          } catch (error: any) {
+                            alert(`Disconnect failed: ${error.message || 'Unknown error'}`);
+                          }
+                        }}
+                        className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: 'var(--chip-radius)',
+                          color: TEXT,
+                          flex: 1,
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <PrimaryButton
+                      onClick={async () => {
+                        setStravaLoading(true);
+                        try {
+                          await connectStrava();
+                          // Will redirect, so loading state will be lost
+                        } catch (error: any) {
+                          setStravaLoading(false);
+                          if (error.message?.includes('not configured') || error.message?.includes('env')) {
+                            alert('Strava is not configured. Please contact support.');
+                          } else {
+                            alert(`Connection failed: ${error.message || 'Unknown error'}`);
+                          }
+                        }
+                      }}
+                      disabled={stravaLoading}
+                    >
+                      {stravaLoading ? 'Connecting...' : 'Connect Strava'}
+                    </PrimaryButton>
+                  </div>
+                )}
+              </GlassCard>
 
               <Card title="Data sources">
                 <div className="flex flex-wrap gap-2">
