@@ -2193,7 +2193,7 @@ function App() {
       };
 
       checkProfile();
-    }, [session?.user.id]);
+    }, [session?.user.id, sessionLoading]);
 
     // Show loading state
     if (loading) {
@@ -2378,6 +2378,17 @@ function App() {
   }
 
   if (mode === "WELCOME") {
+    // Only show WelcomeScreen if we have a valid session
+    // This prevents the error from showing when user first visits
+    if (sessionLoading) {
+      return <FullScreenLoader message="Loading..." />;
+    }
+    if (!session?.user?.id) {
+      // No session, redirect to auth immediately
+      console.log('[App] WELCOME mode but no session, redirecting to AUTH');
+      setMode("AUTH");
+      return <FullScreenLoader message="Redirecting..." />;
+    }
     return <WelcomeScreen />;
   }
 
