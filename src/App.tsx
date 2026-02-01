@@ -35,6 +35,8 @@ import { ListRow } from "./components/ListRow";
 import { FloatingTabBar } from "./components/FloatingTabBar";
 import { HealthMetricTile } from "./components/HealthMetricTile";
 import { AppLayout } from "./components/AppLayout";
+import { ToastContainer } from "./components/Toast";
+import { useToast } from "./hooks/useToast";
 
 type TrainingFocus = "STRENGTH" | "HYPERTROPHY" | "HYBRID";
 
@@ -975,6 +977,7 @@ type UserData = ReturnType<typeof buildEmptyData>;
 
 function App() {
   const emptyData = useMemo(() => buildEmptyData(), []);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const [session, setSession] = useState<null | { user: { id: string } }>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -2160,6 +2163,7 @@ function App() {
 
   return (
     <>
+    <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     <AppLayout header={header} tabBar={tabBar}>
       <div className="space-y-4">
           {tab === "Overview" ? (
@@ -3294,13 +3298,130 @@ function App() {
                             } : null);
                             const activities = await fetchStravaActivities();
                             setStravaActivities(activities);
-                            // Show success toast
-                            alert(`Synced! Imported ${result.importedCount} new activities, updated ${result.updatedCount}.`);
+                            
+                            // Show context-aware toast
+                            if (result.importedCount > 0) {
+                              const lastSyncDate = connection?.last_sync_at 
+                                ? formatDateShort(connection.last_sync_at.split('T')[0])
+                                : null;
+                              showToast({
+                                title: 'Strava synced ✅',
+                                body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.${lastSyncDate ? ` Last sync: ${lastSyncDate}` : ''}`,
+                                variant: 'success',
+                                autoDismiss: true,
+                                dismissAfter: 4000,
+                              });
+                            } else if (result.updatedCount > 0) {
+                              showToast({
+                                title: 'Strava synced ✅',
+                                body: `Updated ${result.updatedCount} activit${result.updatedCount === 1 ? 'y' : 'ies'}.`,
+                                variant: 'success',
+                                autoDismiss: true,
+                                dismissAfter: 3000,
+                              });
+                            } else {
+                              // No new or updated activities
+                              showToast({
+                                title: "You're up to date",
+                                body: 'No new Strava activities since your last sync.',
+                                variant: 'info',
+                                autoDismiss: false,
+                                secondaryAction: {
+                                  label: 'Sync last 30 days',
+                                  onClick: async () => {
+                                    setStravaSyncLoading(true);
+                                    try {
+                                      // Call sync - API will sync from last_sync_at or default to 30 days
+                                      const result = await syncStrava();
+                                      const connection = await fetchStravaConnection();
+                                      setStravaConnection(connection ? {
+                                        athlete_name: connection.athlete_name,
+                                        last_sync_at: connection.last_sync_at,
+                                      } : null);
+                                      const activities = await fetchStravaActivities();
+                                      setStravaActivities(activities);
+                                      
+                                      if (result.importedCount > 0 || result.updatedCount > 0) {
+                                        showToast({
+                                          title: 'Strava synced ✅',
+                                          body: `Found ${result.importedCount + result.updatedCount} activit${result.importedCount + result.updatedCount === 1 ? 'y' : 'ies'}.`,
+                                          variant: 'success',
+                                          autoDismiss: true,
+                                          dismissAfter: 4000,
+                                        });
+                                      } else {
+                                        showToast({
+                                          title: 'No activities found',
+                                          body: 'No new Strava activities found.',
+                                          variant: 'info',
+                                          autoDismiss: true,
+                                          dismissAfter: 3000,
+                                        });
+                                      }
+                                    } catch (error: any) {
+                                      showToast({
+                                        title: 'Sync failed',
+                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                        variant: 'error',
+                                        autoDismiss: true,
+                                        dismissAfter: 4000,
+                                      });
+                                    } finally {
+                                      setStravaSyncLoading(false);
+                                    }
+                                  },
+                                },
+                              });
+                            }
                           } catch (error: any) {
                             if (error.message?.includes('Rate limit')) {
-                              alert('Rate limit reached. Please try again later.');
+                              showToast({
+                                title: 'Rate limit reached',
+                                body: 'Strava rate limit reached. Please try again later.',
+                                variant: 'error',
+                                autoDismiss: true,
+                                dismissAfter: 5000,
+                              });
                             } else {
-                              alert(`Sync failed: ${error.message || 'Unknown error'}`);
+                              showToast({
+                                title: 'Sync failed',
+                                body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                variant: 'error',
+                                action: {
+                                  label: 'Try again',
+                                  onClick: async () => {
+                                    setStravaSyncLoading(true);
+                                    try {
+                                      const result = await syncStrava();
+                                      const connection = await fetchStravaConnection();
+                                      setStravaConnection(connection ? {
+                                        athlete_name: connection.athlete_name,
+                                        last_sync_at: connection.last_sync_at,
+                                      } : null);
+                                      const activities = await fetchStravaActivities();
+                                      setStravaActivities(activities);
+                                      showToast({
+                                        title: 'Strava synced ✅',
+                                        body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.`,
+                                        variant: 'success',
+                                        autoDismiss: true,
+                                        dismissAfter: 3000,
+                                      });
+                                    } catch (retryError: any) {
+                                      showToast({
+                                        title: 'Sync failed',
+                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                        variant: 'error',
+                                        autoDismiss: true,
+                                        dismissAfter: 4000,
+                                      });
+                                    } finally {
+                                      setStravaSyncLoading(false);
+                                    }
+                                  },
+                                },
+                                autoDismiss: false,
+                              });
                             }
                           } finally {
                             setStravaSyncLoading(false);
