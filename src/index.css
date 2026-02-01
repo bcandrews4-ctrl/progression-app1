@@ -1451,6 +1451,18 @@ html {
 }
 
 /* Mobile viewport fixes */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
 @media (max-width: 480px) {
   html {
     font-size: 16px;

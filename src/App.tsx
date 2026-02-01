@@ -24,6 +24,7 @@ import { StatTile } from "./components/StatTile";
 import { ListRow } from "./components/ListRow";
 import { FloatingTabBar } from "./components/FloatingTabBar";
 import { HealthMetricTile } from "./components/HealthMetricTile";
+import { AppLayout } from "./components/AppLayout";
 
 type TrainingFocus = "STRENGTH" | "HYPERTROPHY" | "HYBRID";
 
@@ -41,6 +42,8 @@ type JournalTab = "All" | "Lifts" | "Cardio" | "Running";
 type DateRange = "30" | "90" | "365";
 
 type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Profile";
+
+type AppMode = "AUTH" | "ONBOARDING_FOCUS" | "WELCOME" | "APP";
 
 type LiftEntry = {
   id: string;
@@ -643,6 +646,46 @@ function Input({
   );
 }
 
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: React.HTMLInputTypeAttribute;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <label className="block">
+      <div className="text-xs mb-2 font-medium" style={{ color: MUTED }}>
+        {label}
+      </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className="w-full outline-none transition-all duration-200"
+        style={{ 
+          background: colors.cardBg,
+          border: `1px solid ${focused ? colors.accentBorder : colors.border}`,
+          color: colors.text,
+          borderRadius: radii.xl,
+          padding: "14px 16px",
+          boxShadow: focused ? `0 0 0 3px ${colors.accentGlow}20, 0 2px 8px rgba(0,0,0,0.3)` : "0 1px 3px rgba(0,0,0,0.2)",
+        }}
+      />
+    </label>
+  );
+}
+
 function Select({
   label,
   value,
@@ -913,6 +956,11 @@ function App() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const [tab, setTab] = useState<AppTab>("Overview");
+  
+  // App mode state machine
+  const [mode, setMode] = useState<AppMode>("AUTH");
+  const [welcomeSeen, setWelcomeSeen] = useState(false);
+  const [profileTrainingFocus, setProfileTrainingFocus] = useState<TrainingFocus | null>(null);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("90");
 
@@ -979,6 +1027,11 @@ function App() {
       if (!mounted) return;
       setSession(nextSession ? { user: { id: nextSession.user.id } } : null);
       setSessionLoading(false);
+      // Reset welcome seen on logout
+      if (!nextSession) {
+        setWelcomeSeen(false);
+        setMode("AUTH");
+      }
     });
     return () => {
       mounted = false;
@@ -986,18 +1039,47 @@ function App() {
     };
   }, []);
 
+  // Determine mode based on session and profile state
+  useEffect(() => {
+    if (sessionLoading || !dataLoaded) return;
+    
+    if (!session?.user) {
+      setMode("AUTH");
+      return;
+    }
+
+    // If profile training_focus is missing or null, show onboarding
+    if (!profileTrainingFocus) {
+      setMode("ONBOARDING_FOCUS");
+      return;
+    }
+
+    // If welcome hasn't been seen, show welcome screen
+    if (!welcomeSeen) {
+      setMode("WELCOME");
+      return;
+    }
+
+    // Otherwise, show the app
+    setMode("APP");
+  }, [session, sessionLoading, dataLoaded, profileTrainingFocus, welcomeSeen]);
+
   useEffect(() => {
     const userId = session?.user.id;
     if (!userId) {
       setDataLoaded(false);
       applyUserData(emptyData);
+      setMode("AUTH");
+      setProfileTrainingFocus(null);
       return;
     }
 
     let cancelled = false;
     const loadProfile = async () => {
       setDataLoaded(false);
-      const { data, error } = await supabase
+      
+      // First, ensure profile exists
+      const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("data")
         .eq("id", userId)
@@ -1008,23 +1090,40 @@ function App() {
       // Check for pending goal from signup
       const pendingGoal = localStorage.getItem(`pending_goal_${userId}`);
       
-      if (error || !data?.data) {
+      if (profileError || !profileData) {
+        // Profile doesn't exist - create it
         const defaultData = buildEmptyData();
         if (pendingGoal) {
           defaultData.focus = pendingGoal as TrainingFocus;
           localStorage.removeItem(`pending_goal_${userId}`);
         }
-        await supabase.from("profiles").upsert({ id: userId, data: defaultData });
+        await supabase.from("profiles").upsert({ 
+          id: userId, 
+          data: defaultData
+        });
         applyUserData(defaultData);
+        setProfileTrainingFocus(defaultData.focus || null);
       } else {
-        const userData = data.data as UserData;
+        const userData = profileData.data as UserData | null;
+        // Check training_focus from data.focus
+        const trainingFocus = userData?.focus || null;
+        
         // If profile exists but has no focus and we have a pending goal, update it
-        if (pendingGoal && !userData.focus) {
-          userData.focus = pendingGoal as TrainingFocus;
-          await supabase.from("profiles").update({ data: userData }).eq("id", userId);
+        if (pendingGoal && !trainingFocus) {
+          const updatedData = userData || buildEmptyData();
+          updatedData.focus = pendingGoal as TrainingFocus;
+          await supabase.from("profiles").update({ 
+            data: updatedData
+          }).eq("id", userId);
           localStorage.removeItem(`pending_goal_${userId}`);
-        }
+          setProfileTrainingFocus(pendingGoal as TrainingFocus);
+          applyUserData(updatedData);
+        } else {
+          if (userData) {
         applyUserData(userData);
+          }
+          setProfileTrainingFocus(trainingFocus);
+        }
       }
       setDataLoaded(true);
     };
@@ -1448,18 +1547,267 @@ function App() {
   const [appleHealth, setAppleHealth] = useState(true);
   const [healthConnect, setHealthConnect] = useState(false);
 
-  // --- AUTH UI
-  const authed = !!session?.user;
+  // --- Screen Components
+  function SignupScreen() {
+    const [name, setName] = useState("");
+    const [age, setAge] = useState("");
+    const [signupEmail, setSignupEmail] = useState("");
+    const [signupPassword, setSignupPassword] = useState("");
 
-  if (sessionLoading) {
+    const isValid = name.trim() && age.trim() && signupEmail.trim() && signupPassword.trim() && signupPassword.length >= 6;
+
+    const handleContinue = async () => {
+      setAuthLoading(true);
+      setAuthError(null);
+      
+      try {
+        const { data, error } = await supabase.auth.signUp({ 
+          email: signupEmail, 
+          password: signupPassword 
+        });
+        
+        if (error) {
+          let errorMessage = error.message;
+          if (errorMessage.includes("User already registered")) {
+            errorMessage = "An account with this email already exists. Please log in instead.";
+          } else if (errorMessage.includes("Password")) {
+            errorMessage = "Password must be at least 6 characters long.";
+          } else if (errorMessage.includes("Invalid email")) {
+            errorMessage = "Please enter a valid email address.";
+          }
+          setAuthError(errorMessage);
+          setAuthLoading(false);
+          return;
+        }
+        
+        if (data.user) {
+          // Ensure profile is created
+          const defaultData = buildEmptyData();
+          await supabase.from("profiles").upsert({ 
+            id: data.user.id, 
+            data: defaultData 
+          });
+          
+          // Mode will automatically transition to ONBOARDING_FOCUS 
+          // when session is established and profileTrainingFocus is null
+        }
+      } catch (err: any) {
+        setAuthError(err?.message || "An error occurred. Please try again.");
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
-        <div className="text-center">
-          <div className="text-lg" style={{ color: MUTED }}>Loading...</div>
+        <div className="w-full max-w-[480px] px-6">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-semibold mb-2" style={typography.title}>Let's get started</h1>
+            <p className="text-sm" style={{ color: MUTED }}>We'll use this to personalize your experience.</p>
+          </div>
+
+          <GlassCard className="space-y-5">
+            <TextField label="Name" value={name} onChange={setName} placeholder="Enter your name" />
+            <TextField label="Age" value={age} onChange={setAge} placeholder="Enter your age" type="number" />
+            <TextField label="Email" value={signupEmail} onChange={setSignupEmail} placeholder="you@email.com" type="email" />
+            <TextField label="Password" value={signupPassword} onChange={setSignupPassword} placeholder="••••••••" type="password" />
+            
+            {authError && (
+              <div className="text-sm text-center py-2 px-4 rounded-xl" style={{ 
+                background: "rgba(255,120,120,0.1)", 
+                border: "1px solid rgba(255,120,120,0.3)",
+                color: "rgba(255,120,120,0.9)" 
+              }}>
+                {authError}
+              </div>
+            )}
+
+            <PrimaryButton onClick={handleContinue} disabled={!isValid || authLoading} className="mt-2">
+              {authLoading ? "Creating account..." : "Continue"}
+            </PrimaryButton>
+          </GlassCard>
+
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => {
+                  setEmail("");
+                  setPassword("");
+                  setAuthError(null);
+                  setOnboardingStep("login");
+                }}
+                className="text-sm"
+                style={{ color: ACCENT }}
+              >
+                Already have an account? Log in →
+              </button>
+            </div>
         </div>
       </div>
     );
   }
+
+  function TrainingFocusScreen() {
+    const [selectedFocus, setSelectedFocus] = useState<TrainingFocus | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
+
+    const handleContinue = async () => {
+      if (!selectedFocus || !session?.user) return;
+      
+      setSaving(true);
+      setSaveError(null);
+
+      try {
+        // Update profile with training_focus in data JSON
+        const currentData = buildUserData();
+        currentData.focus = selectedFocus;
+        const { error } = await supabase
+          .from("profiles")
+          .update({ 
+            data: currentData
+          })
+          .eq("id", session.user.id);
+
+        if (error) {
+          setSaveError("Failed to save training focus. Please try again.");
+          setSaving(false);
+          return;
+        }
+
+        // Update local state
+        setFocus(selectedFocus);
+        setProfileTrainingFocus(selectedFocus);
+        
+        // Move to welcome screen
+        setMode("WELCOME");
+      } catch (err: any) {
+        setSaveError(err?.message || "An error occurred. Please try again.");
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const options = [
+      { value: "STRENGTH" as TrainingFocus, label: "Strength", desc: "Build maximum strength" },
+      { value: "HYPERTROPHY" as TrainingFocus, label: "Hypertrophy", desc: "Build muscle size" },
+      { value: "HYBRID" as TrainingFocus, label: "Hybrid", desc: "Best of both worlds" },
+    ];
+
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        <div className="w-full max-w-[480px] px-6">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-semibold mb-2" style={typography.title}>What's your training focus?</h1>
+            <p className="text-sm" style={{ color: MUTED }}>This will be used to calibrate your custom plan.</p>
+          </div>
+
+          <div className="space-y-4 mb-6">
+            {options.map((option) => {
+              const isSelected = selectedFocus === option.value;
+              return (
+                <button
+                  key={option.value}
+                  onClick={() => setSelectedFocus(option.value)}
+                  className="w-full text-left transition-all duration-200 active:scale-[0.98]"
+                  style={{
+                    background: isSelected ? colors.accentSoft : colors.cardBg,
+                    border: `1px solid ${isSelected ? colors.accentBorder : colors.border}`,
+                    borderRadius: radii["2xl"],
+                    padding: "20px",
+                    boxShadow: isSelected ? shadows.glow : shadows.soft,
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="text-lg font-semibold mb-1" style={{ color: colors.text }}>
+                        {option.label}
+                      </div>
+                      <div className="text-sm" style={{ color: MUTED }}>
+                        {option.desc}
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <div className="ml-4 flex-shrink-0">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {saveError && (
+            <div className="mb-4 text-sm text-center py-2 px-4 rounded-xl" style={{ 
+              background: "rgba(255,120,120,0.1)", 
+              border: "1px solid rgba(255,120,120,0.3)",
+              color: "rgba(255,120,120,0.9)" 
+            }}>
+              {saveError}
+            </div>
+          )}
+
+          <div className="fixed bottom-0 left-0 right-0 p-6" style={{ background: `linear-gradient(to top, ${BG} 0%, ${BG} 70%, transparent 100%)` }}>
+            <PrimaryButton 
+              onClick={handleContinue} 
+              disabled={!selectedFocus || saving}
+              style={{ height: "56px", borderRadius: radii.xl }}
+            >
+              {saving ? "Saving..." : "Continue"}
+            </PrimaryButton>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function WelcomeScreen() {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        <div className="w-full max-w-[480px] px-6">
+          <div className="text-center mb-8">
+            <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center" style={{ 
+              background: colors.accentSoft,
+              border: `1px solid ${colors.accentBorder}`,
+            }}>
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-semibold mb-4" style={typography.title}>You're all set</h1>
+          </div>
+
+          <GlassCard className="space-y-4 mb-6">
+            <p className="text-base leading-relaxed text-center" style={{ color: colors.text }}>
+              We can't wait to see your progress over the next 8 weeks!
+            </p>
+            <p className="text-sm leading-relaxed text-center" style={{ color: MUTED }}>
+              Reminder to book those classes in and stay consistent.
+            </p>
+            <p className="text-base leading-relaxed text-center mt-4" style={{ color: colors.text }}>
+              Big Love from the Hybrid House Team!
+            </p>
+          </GlassCard>
+
+          <PrimaryButton 
+            onClick={() => {
+              setWelcomeSeen(true);
+              setMode("APP");
+              setTab("Profile");
+            }}
+            style={{ height: "56px", borderRadius: radii.xl }}
+          >
+            Access Profile
+          </PrimaryButton>
+        </div>
+      </div>
+    );
+  }
+
+  // --- AUTH UI
+  const authed = !!session?.user;
 
   const handleLogin = async () => {
     setAuthLoading(true);
@@ -1486,464 +1834,52 @@ function App() {
     setAuthLoading(false);
   };
 
-  const handleSignup = async () => {
-    setAuthLoading(true);
-    setAuthError(null);
-    setAuthMessage(null);
-    
-    // Validate Supabase configuration
-    const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-    const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseKey) {
-      setAuthError("Configuration error: Missing Supabase credentials. Please check environment variables.");
-      setAuthLoading(false);
-      return;
-    }
-    
-    try {
-      const { data, error } = await supabase.auth.signUp({ 
-        email: onboardingData.email, 
-        password: onboardingData.password 
-      });
-      
-      if (error) {
-        // Log full error for debugging
-        console.error("Supabase signup error:", {
-          message: error.message,
-          status: error.status,
-          name: error.name,
-        });
-        
-        // Clean up error messages for better UX
-        let errorMessage = error.message;
-        
-        // Check error status codes
-        if (error.status === 400) {
-          if (errorMessage.includes("User already registered") || errorMessage.includes("already registered")) {
-            errorMessage = "An account with this email already exists. Please log in instead.";
-          } else if (errorMessage.includes("Password")) {
-            errorMessage = "Password must be at least 6 characters long.";
-          } else if (errorMessage.includes("Invalid email")) {
-            errorMessage = "Please enter a valid email address.";
-          }
-        } else if (error.status === 401 || error.status === 403) {
-          errorMessage = "Authentication error: Please check your Supabase API key configuration.";
-        } else if (error.status === 429) {
-          errorMessage = "Too many signup attempts. Please wait a few minutes and try again, or disable email confirmation in Supabase settings.";
-        } else if (error.status === 0 || errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")) {
-          // Status 0 usually means CORS or network issue
-          errorMessage = `Connection error: ${errorMessage}. Please verify your Supabase URL is correct and CORS is enabled.`;
-        } else if (errorMessage.includes("publishable") || errorMessage.includes("Invalid API key")) {
-          errorMessage = "Invalid API key: Make sure you're using the 'anon' key from Supabase Settings → API.";
-        } else {
-          // Show the actual error message
-          errorMessage = `Error: ${errorMessage} (Status: ${error.status || 'unknown'})`;
-        }
-        
-        setAuthError(errorMessage);
-        setAuthLoading(false);
-        return;
-      }
-      
-      if (data.user) {
-        // Store goal in user metadata for later use
-        const defaultData = buildEmptyData();
-        defaultData.focus = onboardingData.goal;
-        
-        // Try to update profile if session is available
-        const { data: sessionData } = await supabase.auth.getSession();
-        
-        if (sessionData?.session) {
-          // Session available - update profile now
-          try {
-            await new Promise(resolve => setTimeout(resolve, 500)); // Wait for trigger
-            const { error: profileError } = await supabase
-              .from("profiles")
-              .update({ data: defaultData })
-              .eq("id", data.user.id);
-            
-            if (profileError) {
-              console.error("Profile update error:", profileError);
-              // Continue anyway - profile will be updated on login
-            }
-          } catch (err) {
-            console.error("Profile update exception:", err);
-            // Continue anyway
-          }
-        } else {
-          // No session - email confirmation required
-          // Store goal in localStorage to update on login
-          localStorage.setItem(`pending_goal_${data.user.id}`, onboardingData.goal);
-        }
-        
-        // Always proceed to step 3 - profile will be updated when they log in
-        setOnboardingStep("step3");
-      } else {
-        setAuthError("Account creation failed. Please try again.");
-      }
-    } catch (err: any) {
-      console.error("Signup exception:", {
-        message: err?.message,
-        name: err?.name,
-        stack: err?.stack,
-        cause: err?.cause,
-      });
-      
-      let errorMessage = "An error occurred. Please try again.";
-      
-      if (err?.message) {
-        // Show the actual error message with context
-        if (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")) {
-          errorMessage = `Connection failed: ${err.message}. This usually means:\n1. Supabase URL is incorrect\n2. CORS is not enabled\n3. API key is invalid\n\nCheck browser console (F12) for details.`;
-        } else if (err.message.includes("CORS")) {
-          errorMessage = "CORS error: Please check your Supabase project settings allow requests from this domain.";
-        } else {
-          errorMessage = `Error: ${err.message}`;
-        }
-      } else if (err?.cause) {
-        errorMessage = `Error: ${err.cause}`;
-      }
-      
-      setAuthError(errorMessage);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleOnboardingNext = async () => {
-    setAuthError(null);
-    if (onboardingStep === "step1") {
-      if (!onboardingData.name || !onboardingData.age || !onboardingData.email || !onboardingData.password) {
-        setAuthError("Please fill in all fields");
-        return;
-      }
-      setOnboardingStep("step2");
-    } else if (onboardingStep === "step2") {
-      if (!onboardingData.goal) {
-        setAuthError("Please select a training focus");
-        return;
-      }
-      
-      // Validate Supabase config before attempting signup
-      const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-      const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-      
-      if (!supabaseUrl || !supabaseKey) {
-        setAuthError("Configuration error: Missing Supabase credentials. Please check environment variables in Vercel.");
-        return;
-      }
-      
-      await handleSignup();
-    }
-  };
-
-  // Show onboarding steps (always show step1, step2, step3 regardless of auth status)
-  if (onboardingStep === "step1" || onboardingStep === "step2" || onboardingStep === "step3") {
-    // Step 1: Name, Age, Email, Password
-    if (onboardingStep === "step1") {
-      return (
-        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
-          <div className="mx-auto max-w-md px-6" style={{ paddingTop: "50px", paddingBottom: "50px" }}>
-            <button
-              onClick={() => setOnboardingStep("login")}
-              className="mb-8 text-black"
-            >
-              ← Back
-            </button>
-
-            <h1 className="text-3xl font-bold mb-3">Let's get started</h1>
-            <p className="text-base mb-12 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
-              We'll use this to personalize your experience.
-            </p>
-
-            <div className="space-y-6 mb-24">
-              <div>
-                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Name</label>
-                <input
-                  type="text"
-                  value={onboardingData.name}
-                  onChange={(e) => setOnboardingData({ ...onboardingData, name: e.target.value })}
-                  placeholder="Enter your name"
-                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
-                  style={{ 
-                    background: "#F9F9F9",
-                    borderColor: "#E5E5E5",
-                    fontFamily: "var(--font-subheading)",
-                    overflow: "visible",
-                    borderRadius: "30px",
-                    paddingLeft: "10px",
-                    paddingRight: "10px",
-                    height: "40px",
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Age</label>
-                <input
-                  type="number"
-                  value={onboardingData.age}
-                  onChange={(e) => setOnboardingData({ ...onboardingData, age: e.target.value })}
-                  placeholder="Enter your age"
-                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
-                  style={{ 
-                    background: "#F9F9F9",
-                    borderColor: "#E5E5E5",
-                    fontFamily: "var(--font-subheading)",
-                    overflow: "visible",
-                    borderRadius: "30px",
-                    paddingLeft: "10px",
-                    paddingRight: "10px",
-                    height: "40px",
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Email</label>
-                <input
-                  type="email"
-                  value={onboardingData.email}
-                  onChange={(e) => setOnboardingData({ ...onboardingData, email: e.target.value })}
-                  placeholder="you@email.com"
-                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
-                  style={{ 
-                    background: "#F9F9F9",
-                    borderColor: "#E5E5E5",
-                    fontFamily: "var(--font-subheading)",
-                    overflow: "visible",
-                    borderRadius: "30px",
-                    paddingLeft: "10px",
-                    paddingRight: "10px",
-                    height: "40px",
-                  }}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold mb-3" style={{ fontFamily: "var(--font-subheading)" }}>Password</label>
-                <input
-                  type="password"
-                  value={onboardingData.password}
-                  onChange={(e) => setOnboardingData({ ...onboardingData, password: e.target.value })}
-                  placeholder="••••••••"
-                  className="w-full py-4.5 border focus:outline-none focus:ring-2 transition-all text-base"
-                  style={{ 
-                    background: "#F9F9F9",
-                    borderColor: "#E5E5E5",
-                    fontFamily: "var(--font-subheading)",
-                    overflow: "visible",
-                    borderRadius: "30px",
-                    paddingLeft: "10px",
-                    paddingRight: "10px",
-                    height: "40px",
-                  }}
-                />
-              </div>
-            </div>
-
-            {authError && (
-              <div className="text-sm text-center mb-6" style={{ color: "rgba(255,120,120,0.9)" }}>
-                {authError}
-              </div>
-            )}
-
-            <button
-              onClick={handleOnboardingNext}
-              disabled={authLoading}
-              className="w-full py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base"
-              style={{ 
-                background: authLoading ? "#999999" : ACCENT,
-                boxShadow: authLoading ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
-                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
-                height: "35px",
-                overflow: "visible",
-                borderRadius: "30px",
-              }}
-            >
-              {authLoading ? "Creating..." : "Continue"}
-            </button>
-          </div>
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+        <div className="text-center">
+          <div className="text-lg" style={{ color: MUTED }}>Loading...</div>
         </div>
-      );
-    }
-
-    // Step 2: Training Focus Selection
-    if (onboardingStep === "step2") {
-      return (
-        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
-          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
-            <button
-              onClick={() => setOnboardingStep("step1")}
-              className="mb-8 text-black"
-            >
-              ← Back
-            </button>
-            
-            <div className="mb-2">
-              <div className="h-1 w-24 rounded-full" style={{ background: "#E5E5E5" }}></div>
-            </div>
-
-            <h1 className="text-3xl font-bold mb-3">What's your training focus?</h1>
-            <p className="text-base mb-12 font-bold" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
-              This will be used to calibrate your custom plan.
-            </p>
-
-            <div className="space-y-3 mb-16">
-              {[
-                { label: "Strength", value: "STRENGTH", desc: "Build maximum strength" },
-                { label: "Hypertrophy", value: "HYPERTROPHY", desc: "Build muscle size" },
-                { label: "Hybrid", value: "HYBRID", desc: "Best of both worlds" },
-              ].map((option) => {
-                const isSelected = onboardingData.goal === option.value;
-                return (
-                  <div
-                    key={option.value}
-                    className="rounded-2xl transition-all"
-                    style={{
-                      background: isSelected 
-                        ? "linear-gradient(135deg, #0000FF 0%, #000000 100%)"
-                        : "transparent",
-                      padding: isSelected ? "2px" : "0px",
-                    }}
-                  >
-                    <button
-                      onClick={() => setOnboardingData({ ...onboardingData, goal: option.value as TrainingFocus })}
-                      className="w-full rounded-2xl px-5 py-4 text-left transition-all active:scale-[0.98]"
-                      style={{
-                        background: "#FFFFFF",
-                        border: isSelected ? "none" : "1px solid #E5E5E5",
-                      }}
-                    >
-                      <div className="flex items-center">
-                        <div className="flex-1" style={{ marginLeft: "10px" }}>
-                          <div 
-                            className="text-lg font-bold mb-0.5"
-                            style={{ 
-                              color: "#000000",
-                            }}
-                          >
-                            {option.label}
-                          </div>
-                          <div 
-                            className="text-sm font-bold"
-                            style={{ 
-                              color: "#666666",
-                              fontFamily: "var(--font-subheading)",
-                            }}
-                          >
-                            {option.desc}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-
-            {authError && (
-              <div className="text-sm text-center mb-6" style={{ color: "rgba(255,120,120,0.9)" }}>
-                {authError}
-              </div>
-            )}
-
-            <button
-              onClick={async () => {
-                if (!onboardingData.goal) {
-                  setAuthError("Please select a training focus");
-                  return;
-                }
-                await handleOnboardingNext();
-              }}
-              disabled={authLoading || !onboardingData.goal}
-              className="w-full rounded-3xl py-4.5 font-semibold text-white disabled:opacity-50 transition-all text-base active:scale-[0.98]"
-              style={{ 
-                background: (authLoading || !onboardingData.goal) ? "#999999" : ACCENT,
-                boxShadow: (authLoading || !onboardingData.goal) ? "none" : "0 2px 8px rgba(0, 0, 0, 0.1)",
-                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
-                height: "35px",
-                overflow: "visible",
-                borderRadius: "30px",
-              }}
-            >
-              {authLoading ? "Creating account..." : "Continue"}
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // Step 3: Confirmation
-    if (onboardingStep === "step3") {
-      return (
-        <div className="min-h-screen" style={{ background: "#FFFFFF", color: "#000000" }}>
-          <div className="mx-auto max-w-md px-6 pt-12 pb-8">
-            <div className="mb-8">
-              <div className="w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center" style={{ background: "#F0F0F0" }}>
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-            </div>
-
-            <h1 className="text-3xl font-bold mb-4 text-center">You're all set, {onboardingData.name}!</h1>
-            
-            <p className="text-base mb-8 leading-relaxed font-bold text-center" style={{ color: "#666666", fontFamily: "var(--font-subheading)" }}>
-              We can't wait to see how you progress over the next 8 weeks! We know you're going to smash it!
-            </p>
-            
-            <p className="text-base mb-12 font-bold text-center" style={{ color: "#000000", fontFamily: "var(--font-subheading)" }}>
-              Big Love,<br />Hybrid House Team
-            </p>
-
-            <button
-              onClick={() => {
-                setOnboardingStep("login");
-              }}
-              className="w-full rounded-3xl py-4.5 font-semibold text-white transition-all text-base"
-              style={{ 
-                background: ACCENT,
-                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)",
-                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
-                height: "35px",
-                overflow: "visible",
-                borderRadius: "30px",
-              }}
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-      );
-    }
+      </div>
+    );
   }
 
-  // Login screen for existing users (only show if not authed)
-  if (!authed) {
-    if (onboardingStep === "login") {
+  // Mode-based rendering
+  if (mode === "AUTH") {
+    // Show login screen or signup screen
+    if (onboardingStep === "login" || !onboardingStep) {
       return (
-        <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-          <div className="mx-auto max-w-md px-6 pb-32" style={{ paddingTop: "50px" }}>
-            <div className="text-4xl font-bold mb-2">Hybrid House</div>
-            <div className="text-sm mb-12" style={{ color: MUTED }}>
-              Journal + Progress
+        <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+          <div className="w-full max-w-[480px] px-6">
+            <div className="text-center mb-8">
+              <div className="text-4xl font-bold mb-2">Hybrid House</div>
+              <div className="text-sm mb-12" style={{ color: MUTED }}>
+                Journal + Progress
+              </div>
             </div>
 
-            <div className="space-y-5">
+            <GlassCard className="space-y-5">
               <Input label="Email" value={email} onChange={setEmail} placeholder="you@email.com" />
               <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
               <PrimaryButton onClick={handleLogin} disabled={!email || !password || authLoading}>
                 {authLoading ? "Signing in..." : "Login"}
               </PrimaryButton>
               {authError && (
-                <div className="text-sm text-center" style={{ color: "rgba(255,120,120,0.9)" }}>
+                <div className="text-sm text-center py-2 px-4 rounded-xl" style={{ 
+                  background: "rgba(255,120,120,0.1)", 
+                  border: "1px solid rgba(255,120,120,0.3)",
+                  color: "rgba(255,120,120,0.9)" 
+                }}>
                   {authError}
                 </div>
               )}
-            </div>
+            </GlassCard>
 
-            <div className="mt-8 text-center">
+            <div className="mt-6 text-center">
               <button
-                onClick={() => setOnboardingStep("step1")}
+                onClick={() => {
+                  setOnboardingStep("step1");
+                }}
                 className="text-sm"
                 style={{ color: ACCENT }}
               >
@@ -1953,87 +1889,28 @@ function App() {
           </div>
         </div>
       );
+    } else {
+      return <SignupScreen />;
     }
-    
-    // This should never be reached - all onboarding steps are handled above
+  }
+
+  if (mode === "ONBOARDING_FOCUS") {
+    return <TrainingFocusScreen />;
+  }
+
+  if (mode === "WELCOME") {
+    return <WelcomeScreen />;
+  }
+
+  // Old handleSignup code removed - signup is now handled in SignupScreen component
+  // Old onboarding code removed - now using mode-based rendering
+  // All onboarding screens are now handled by mode state machine above
+
+  // Mode === "APP" - render main app
+  if (mode !== "APP") {
+    // This should never be reached as all modes are handled above
     return null;
   }
-
-  // Login screen for existing users (only show if not authed)
-  if (!authed && onboardingStep === "login") {
-    return (
-      <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-        <div className="mx-auto max-w-md px-6 pb-32" style={{ paddingTop: "50px" }}>
-          <div className="text-4xl font-bold mb-2">Hybrid House</div>
-          <div className="text-sm mb-12" style={{ color: MUTED }}>
-            Journal + Progress
-          </div>
-
-          <div className="space-y-5">
-            <Input label="Email" value={email} onChange={setEmail} placeholder="you@email.com" />
-            <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
-            <PrimaryButton onClick={handleLogin} disabled={!email || !password || authLoading}>
-              {authLoading ? "Signing in..." : "Login"}
-            </PrimaryButton>
-            {authError && (
-              <div className="text-sm text-center" style={{ color: "rgba(255,120,120,0.9)" }}>
-                {authError}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => setOnboardingStep("step1")}
-              className="text-sm"
-              style={{ color: ACCENT }}
-            >
-              Create new account →
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // If not logged in and not in onboarding, show login
-  if (!authed) {
-    return (
-      <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-        <div className="mx-auto max-w-md px-6 pb-32" style={{ paddingTop: "50px" }}>
-          <div className="text-4xl font-bold mb-2">Hybrid House</div>
-          <div className="text-sm mb-12" style={{ color: MUTED }}>
-            Journal + Progress
-          </div>
-
-          <div className="space-y-5">
-            <Input label="Email" value={email} onChange={setEmail} placeholder="you@email.com" />
-            <Input label="Password" value={password} onChange={setPassword} placeholder="••••••••" type="password" />
-            <PrimaryButton onClick={handleLogin} disabled={!email || !password || authLoading}>
-              {authLoading ? "Signing in..." : "Login"}
-            </PrimaryButton>
-            {authError && (
-              <div className="text-sm text-center" style={{ color: "rgba(255,120,120,0.9)" }}>
-                {authError}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => setOnboardingStep("step1")}
-              className="text-sm"
-              style={{ color: ACCENT }}
-            >
-              Create new account →
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // All onboarding steps are handled above - no duplicate code needed
 
   if (!dataLoaded) {
     return (
@@ -2043,30 +1920,47 @@ function App() {
     );
   }
 
-  return (
-    <div className="min-h-screen" style={{ background: BG, color: TEXT }}>
-      <div className="mx-auto max-w-md px-[20px] pt-[50px] pb-[50px]">
-        {/* Premium Header */}
-        <header className="flex items-center justify-between mb-6">
-          <div>
-          <div className="flex items-center gap-2">
-              <div className="text-xl font-semibold" style={typography.title}>Hybrid House</div>
-            <Badge>{focus}</Badge>
-          </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              {tab}
-            </div>
-          </div>
-          <IconButton onClick={() => supabase.auth.signOut()} size="sm">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
-          </IconButton>
-        </header>
+  // Header component
+  const header = (
+    <header className="flex items-center justify-between">
+      <div>
+        <div className="flex items-center gap-2">
+          <div className="text-xl font-semibold" style={typography.title}>Hybrid House</div>
+          <Badge>{focus}</Badge>
+        </div>
+        <div className="text-xs mt-1" style={{ color: MUTED }}>
+          {tab}
+        </div>
+      </div>
+      <IconButton onClick={() => supabase.auth.signOut()} size="sm">
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+        </svg>
+      </IconButton>
+    </header>
+  );
 
-        <div className="mt-5">
+  // Tab bar component
+  const tabBar = (
+    <FloatingTabBar
+      tabs={[
+        { id: "Overview", label: "Overview", icon: <Icon name="overview" /> },
+        { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
+        { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
+        { id: "Health", label: "Health", icon: <Icon name="health" /> },
+        { id: "Profile", label: "Profile", icon: <Icon name="profile" /> },
+      ]}
+      activeTab={tab}
+      onTabChange={(id) => setTab(id as AppTab)}
+    />
+  );
+
+  return (
+    <>
+    <AppLayout header={header} tabBar={tabBar}>
+      <div className="space-y-4">
           {tab === "Overview" ? (
-            <div className="space-y-5">
+            <div className="space-y-4">
               {/* Header with Date Range */}
               <div className="flex items-start justify-between">
                 <div>
@@ -2169,7 +2063,7 @@ function App() {
           ) : null}
 
           {tab === "Journal" ? (
-            <div className="space-y-5">
+            <div className="space-y-4">
               {/* Premium Header */}
               <div className="flex items-end justify-between">
                 <div>
@@ -3145,24 +3039,11 @@ function App() {
               <PrimaryButton onClick={() => supabase.auth.signOut()}>Logout</PrimaryButton>
             </div>
           ) : null}
-        </div>
       </div>
+    </AppLayout>
 
-      {/* Floating Tab Bar */}
-      <FloatingTabBar
-        tabs={[
-          { id: "Overview", label: "Overview", icon: <Icon name="overview" /> },
-          { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
-          { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
-          { id: "Health", label: "Health", icon: <Icon name="health" /> },
-          { id: "Profile", label: "Profile", icon: <Icon name="profile" /> },
-        ]}
-        activeTab={tab}
-        onTabChange={(id) => setTab(id as AppTab)}
-      />
-
-      {/* Add modal chooser */}
-      <Modal
+    {/* Add modal chooser */}
+    <Modal
         open={modal?.type === "ADD"}
         title="Quick add"
         onClose={() => setModal(null)}
@@ -3418,7 +3299,7 @@ function App() {
           <PrimaryButton onClick={addRun}>Save</PrimaryButton>
         </div>
       </Modal>
-    </div>
+    </>
   );
 }
 
