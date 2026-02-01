@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { LogOut, Plus, Footprints } from "lucide-react";
 
 import {
   LineChart,
@@ -1933,9 +1934,7 @@ function App() {
         </div>
       </div>
       <IconButton onClick={() => supabase.auth.signOut()} size="sm">
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-        </svg>
+        <LogOut className="w-4 h-4" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.9 }} />
       </IconButton>
     </header>
   );
@@ -2050,9 +2049,7 @@ function App() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="text-base font-semibold" style={typography.sectionTitle}>Quick add</div>
                   <IconButton onClick={openAdd} size="sm">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M12 5v14M5 12h14" />
-                    </svg>
+                    <Plus className="w-4 h-4" stroke="currentColor" strokeWidth={2.5} style={{ opacity: 0.9 }} />
                   </IconButton>
                 </div>
                 <div className="text-sm" style={{ color: MUTED }}>
@@ -2073,9 +2070,7 @@ function App() {
                   </div>
                 </div>
                 <IconButton onClick={openAdd} size="md" className="!rounded-full">
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
+                  <Plus className="w-5 h-5" stroke="currentColor" strokeWidth={2.5} style={{ opacity: 0.9 }} />
                 </IconButton>
               </div>
 
@@ -2638,15 +2633,13 @@ function App() {
                     {/* Top Row: Steps, Sleep, Heart - 3 columns */}
                     <div className="grid grid-cols-3 gap-2.5">
                       {/* Steps Card */}
-                      <div className="rounded-2xl p-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-                        <div className="flex items-center gap-1 mb-2">
-                          <svg className="w-1.5 h-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT }}>
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                          </svg>
+                      <div className="rounded-2xl p-3 relative" style={{ background: CARD, border: `1px solid ${BORDER}`, minHeight: "100px" }}>
+                        <div className="flex items-center gap-1 mb-2" style={{ position: "relative", zIndex: 1 }}>
+                          <Footprints className="w-[150px] h-[150px]" width={150} height={150} stroke={ACCENT} strokeWidth={2.5} style={{ opacity: 0.95 }} />
                           <div className="text-[9px] font-medium" style={{ color: MUTED }}>Steps</div>
                         </div>
-                        <div className="relative w-14 h-14 mx-auto mb-1.5">
-                          <svg className="w-14 h-14 transform -rotate-90">
+                        <div className="absolute" style={{ left: "14px", bottom: "14px", width: "44px", height: "44px", zIndex: 0 }}>
+                          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56" style={{ display: "block", width: "44px", height: "44px" }}>
                             <circle
                               cx="28"
                               cy="28"
@@ -2668,7 +2661,7 @@ function App() {
                               style={{ transition: "stroke-dashoffset 0.5s ease" }}
                             />
                           </svg>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
                             <div className="text-xs font-bold leading-tight" style={{ color: TEXT }}>
                               {latest?.steps.toLocaleString() || "0"}
                             </div>
@@ -2682,7 +2675,7 @@ function App() {
                       {/* Sleep Card */}
                       <div className="rounded-2xl p-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
                         <div className="flex items-center gap-1 mb-2">
-                          <svg className="w-[50px] h-[35px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT }}>
+                          <svg className="w-[150px] h-[35px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" style={{ width: "25px", height: "25px" }} />
                           </svg>
                           <div className="text-[9px] font-medium" style={{ color: MUTED }}>Sleep</div>
@@ -2774,7 +2767,7 @@ function App() {
                       {/* Heart Rate Card */}
                       <div className="rounded-2xl p-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
                         <div className="flex items-center gap-1 mb-2">
-                          <svg className="w-[50px] h-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT }}>
+                          <svg className="w-[150px] h-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
                             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
                           </svg>
                           <div className="text-[9px] font-medium" style={{ color: MUTED }}>Heart</div>
@@ -2837,9 +2830,7 @@ function App() {
                         value={Math.round(avgSteps).toLocaleString()}
                         unit=""
                         icon={
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                          </svg>
+                          <Footprints className="w-4 h-4" stroke={ACCENT} strokeWidth={2} style={{ opacity: 0.95 }} />
                         }
                         subLabel={healthPeriod === "Daily" ? "today" : "avg/day"}
                         variant="full"

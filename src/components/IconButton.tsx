@@ -10,18 +10,25 @@ interface IconButtonProps {
 
 export function IconButton({ children, onClick, className = "", size = "md" }: IconButtonProps) {
   const sizeMap = {
-    sm: "w-8 h-8",
-    md: "w-10 h-10",
-    lg: "w-12 h-12",
+    sm: { width: "44px", height: "44px", iconSize: "18px" },
+    md: { width: "44px", height: "44px", iconSize: "20px" },
+    lg: { width: "44px", height: "44px", iconSize: "22px" },
   };
+
+  const sizeConfig = sizeMap[size];
 
   return (
     <button
       onClick={onClick}
-      className={`${sizeMap[size]} rounded-xl flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 ${className}`}
+      className={`flex items-center justify-center transition-all duration-200 active:scale-95 ${className}`}
       style={{
-        background: colors.cardBg,
+        width: sizeConfig.width,
+        height: sizeConfig.height,
+        minWidth: sizeConfig.width,
+        minHeight: sizeConfig.height,
+        background: "rgba(255,255,255,0.04)",
         border: `1px solid ${colors.border}`,
+        borderRadius: radii.lg,
         color: colors.text,
       }}
       onMouseEnter={(e) => {
