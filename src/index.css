@@ -1448,6 +1448,35 @@ html {
 :root {
   --font-heading: "Speed", "Speed 2", "Space Grotesk", var(--font-sans);
   --font-subheading: "Arial", "Helvetica Neue", Helvetica, sans-serif;
+  
+  /* Design System Tokens - Single Source of Truth */
+  /* Spacing */
+  --page-pad-x: 16px;
+  --page-pad-x-lg: 20px;
+  --section-gap: 16px;
+  --card-pad: 16px;
+  
+  /* Radius */
+  --card-radius: 22px;
+  --input-radius: 16px;
+  --chip-radius: 999px;
+  --btn-radius: 18px;
+  
+  /* Colors */
+  --surface: rgba(255,255,255,0.05);
+  --border: 1px solid rgba(255,255,255,0.08);
+  --muted: rgba(255,255,255,0.65);
+  --glow: 0 0 24px rgba(0,0,255,0.25);
+  --shadow: 0 12px 40px rgba(0,0,0,0.6);
+  
+  /* Layout */
+  --tabbar-h: 84px;
+}
+
+@media (min-width: 480px) {
+  :root {
+    --page-pad-x: var(--page-pad-x-lg);
+  }
 }
 
 /* Mobile viewport fixes */

@@ -16,12 +16,13 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   return (
     <div
-      className={`flex items-center gap-2 ${className}`}
+      className={`flex items-center ${className}`}
       style={{
-        background: colors.cardBg,
-        borderRadius: radii.xl,
-        padding: "4px",
-        border: `1px solid ${colors.border}`,
+        background: "rgba(255,255,255,0.05)",
+        borderRadius: "var(--chip-radius)",
+        padding: "6px",
+        border: "1px solid rgba(255,255,255,0.08)",
+        gap: "0",
       }}
     >
       {options.map((o) => {
@@ -30,19 +31,34 @@ export function SegmentedControl<T extends string>({
           <button
             key={o.value}
             onClick={() => setValue(o.value)}
-            className="px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200"
-            style={
-              active
-                ? {
-                    background: colors.accent,
-                    color: colors.text,
-                    boxShadow: shadows.glow,
-                  }
-                : {
-                    background: "transparent",
-                    color: colors.muted,
-                  }
-            }
+            className="text-sm font-medium transition-all duration-200"
+            style={{
+              background: active ? "#0000ff" : "transparent",
+              color: active ? "#FFFFFF" : "rgba(255,255,255,0.75)",
+              borderRadius: "var(--chip-radius)",
+              boxShadow: active ? "0 0 18px rgba(0,0,255,0.25)" : "none",
+              padding: "12px 14px",
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              if (!active) {
+                e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!active) {
+                e.currentTarget.style.background = "transparent";
+              }
+            }}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = "scale(0.98)";
+            }}
+            onMouseUp={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+            }}
           >
             {o.label}
           </button>

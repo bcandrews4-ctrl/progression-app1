@@ -27,10 +27,13 @@ export function HealthMetricTile({
 
   return (
     <div
-      className="relative rounded-2xl p-4"
+      className="relative"
       style={{
-        background: colors.cardBg2,
-        border: `1px solid ${colors.border}`,
+        background: "var(--surface)",
+        border: "var(--border)",
+        borderRadius: "var(--card-radius)",
+        padding: "var(--card-pad)",
+        boxShadow: "var(--shadow)",
         minHeight: isCompact ? "120px" : "140px",
       }}
     >
@@ -38,8 +41,8 @@ export function HealthMetricTile({
       <div
         className="absolute"
         style={{
-          top: "16px",
-          left: "16px",
+          top: "var(--card-pad)",
+          left: "var(--card-pad)",
           width: "16px",
           height: "16px",
           opacity: 0.95,
@@ -53,10 +56,11 @@ export function HealthMetricTile({
       <div className="pt-10 flex flex-col h-full">
         {/* Title - with spacing from icon */}
         <div
-          className="text-sm font-semibold mb-3"
           style={{
-            color: "rgba(255,255,255,0.75)",
-            fontSize: "13px",
+            fontSize: "12.5px",
+            fontWeight: 600,
+            color: "var(--muted)",
+            marginBottom: "12px",
             paddingLeft: "24px", // Spacing between icon and title
           }}
         >
@@ -95,18 +99,22 @@ export function HealthMetricTile({
         {/* Value and Unit */}
         <div className="mt-auto flex items-baseline gap-1">
           <div
-            className="text-2xl font-semibold"
             style={{
+              fontSize: isCompact ? "28px" : "32px",
+              fontWeight: 700,
+              lineHeight: "1.2",
               color: colors.text,
-              fontSize: isCompact ? "22px" : "26px",
             }}
           >
             {value}
           </div>
           {unit && (
             <div
-              className="text-xs font-medium"
-              style={{ color: colors.muted }}
+              style={{
+                fontSize: "12.5px",
+                fontWeight: 400,
+                color: "var(--muted)",
+              }}
             >
               {unit}
             </div>
@@ -116,8 +124,12 @@ export function HealthMetricTile({
         {/* Sub Label */}
         {subLabel && (
           <div
-            className="text-xs mt-1"
-            style={{ color: colors.muted }}
+            style={{
+              fontSize: "12.5px",
+              fontWeight: 400,
+              color: "var(--muted)",
+              marginTop: "4px",
+            }}
           >
             {subLabel}
           </div>

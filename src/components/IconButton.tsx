@@ -26,18 +26,18 @@ export function IconButton({ children, onClick, className = "", size = "md" }: I
         height: sizeConfig.height,
         minWidth: sizeConfig.width,
         minHeight: sizeConfig.height,
-        background: "rgba(255,255,255,0.04)",
-        border: `1px solid ${colors.border}`,
-        borderRadius: radii.lg,
+        background: "var(--surface)",
+        border: "var(--border)",
+        borderRadius: "var(--input-radius)",
         color: colors.text,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = shadows.glow;
+        e.currentTarget.style.boxShadow = "var(--glow)";
         e.currentTarget.style.borderColor = colors.accentBorder;
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.boxShadow = "none";
-        e.currentTarget.style.borderColor = colors.border;
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
       }}
     >
       {children}

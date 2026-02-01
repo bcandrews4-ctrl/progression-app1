@@ -64,8 +64,8 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
           overflowY: "auto",
           overflowX: "hidden",
           WebkitOverflowScrolling: "touch",
-          paddingLeft: "clamp(16px, 4vw, 24px)",
-          paddingRight: "clamp(16px, 4vw, 24px)",
+          paddingLeft: "var(--page-pad-x)",
+          paddingRight: "var(--page-pad-x)",
           paddingTop: header ? "0" : "calc(16px + env(safe-area-inset-top, 0px))",
           paddingBottom: "calc(var(--tabbar-h) + var(--tabbar-bottom-offset) + 16px + env(safe-area-inset-bottom, 0px))",
         }}

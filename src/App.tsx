@@ -276,14 +276,20 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl" style={{ background: CARD, border: `1px solid ${BORDER}`, boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
-      <div className="flex items-center justify-between px-5 pt-5">
-        <div className="text-sm font-semibold" style={{ color: TEXT }}>
+    <div style={{ 
+      background: "var(--surface)", 
+      border: "var(--border)", 
+      borderRadius: "var(--card-radius)",
+      boxShadow: "var(--shadow)",
+      padding: "var(--card-pad)",
+    }}>
+      <div className="flex items-center justify-between" style={{ marginBottom: "12px" }}>
+        <div style={{ fontSize: "15px", fontWeight: 600, color: TEXT }}>
           {title}
         </div>
         {right}
       </div>
-      <div className="px-5 pb-5">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -529,7 +535,7 @@ function Modal({
     >
       <div
         className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6"
-        style={{ background: CARD2, border: `1px solid ${BORDER}`, boxShadow: "0 -4px 24px rgba(0,0,0,0.5)" }}
+        style={{ background: "var(--surface)", border: "var(--border)", boxShadow: "var(--shadow)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">
@@ -538,8 +544,8 @@ function Modal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-            style={{ background: "rgba(255,255,255,0.05)", color: TEXT, border: `1px solid ${BORDER}` }}
+            className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+            style={{ background: "var(--surface)", color: TEXT, border: "var(--border)" }}
           >
             Close
           </button>
@@ -627,9 +633,9 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
+        className="w-full px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
         style={{ 
-          background: "rgba(255,255,255,0.05)", 
+          background: "var(--surface)", 
           border: `1px solid ${BORDER}`, 
           color: TEXT,
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
@@ -678,8 +684,8 @@ function TextField({
           background: colors.cardBg,
           border: `1px solid ${focused ? colors.accentBorder : colors.border}`,
           color: colors.text,
-          borderRadius: radii.xl,
-          padding: "14px 16px",
+          borderRadius: "var(--input-radius)",
+          padding: "var(--card-pad)",
           boxShadow: focused ? `0 0 0 3px ${colors.accentGlow}20, 0 2px 8px rgba(0,0,0,0.3)` : "0 1px 3px rgba(0,0,0,0.2)",
         }}
       />
@@ -706,9 +712,9 @@ function Select({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
+        className="w-full px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
         style={{ 
-          background: "rgba(255,255,255,0.05)", 
+          background: "var(--surface)", 
           border: `1px solid ${BORDER}`, 
           color: TEXT,
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
@@ -750,8 +756,8 @@ function HistoryRow({
   return (
     <button
       onClick={onClick}
-      className={classNames("w-full text-left rounded-xl px-4 py-3 transition-all duration-200", onClick ? "hover:opacity-90 active:scale-[0.98]" : "")}
-      style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}` }}
+      className={classNames("w-full text-left px-4 py-3 transition-all duration-200", onClick ? "hover:opacity-90 active:scale-[0.98]" : "")}
+      style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: "var(--border)" }}
     >
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -788,7 +794,11 @@ function GroupedLiftRow({
   const count = entries.length;
   
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}` }}>
+    <div className="overflow-hidden" style={{ 
+      background: "var(--surface)", 
+      border: "var(--border)", 
+      borderRadius: "var(--card-radius)",
+    }}>
       <button
         onClick={onToggle}
         className="w-full text-left px-4 py-3 transition-all duration-200 hover:opacity-90 active:scale-[0.98] flex items-center justify-between"
@@ -814,7 +824,8 @@ function GroupedLiftRow({
               e.stopPropagation();
               onSelectLift();
             }}
-            className="text-xs px-3 py-1.5 rounded-lg transition-all duration-200 hover:opacity-90"
+            className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
+            style={{ borderRadius: "var(--chip-radius)" }}
             style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
@@ -837,8 +848,9 @@ function GroupedLiftRow({
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between py-2 px-3 rounded-lg"
-                style={{ background: "rgba(255,255,255,0.02)" }}
+                className="flex items-center justify-between py-2 px-3"
+                style={{ borderRadius: "var(--input-radius)" }}
+                style={{ background: "var(--surface)" }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -875,7 +887,11 @@ function GroupedCardioRow({
   const count = entries.length;
   
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}` }}>
+    <div className="overflow-hidden" style={{ 
+      background: "var(--surface)", 
+      border: "var(--border)", 
+      borderRadius: "var(--card-radius)",
+    }}>
       <button
         onClick={onToggle}
         className="w-full text-left px-4 py-3 transition-all duration-200 hover:opacity-90 active:scale-[0.98] flex items-center justify-between"
@@ -901,7 +917,8 @@ function GroupedCardioRow({
               e.stopPropagation();
               onSelectMachine();
             }}
-            className="text-xs px-3 py-1.5 rounded-lg transition-all duration-200 hover:opacity-90"
+            className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
+            style={{ borderRadius: "var(--chip-radius)" }}
             style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
@@ -924,8 +941,9 @@ function GroupedCardioRow({
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between py-2 px-3 rounded-lg"
-                style={{ background: "rgba(255,255,255,0.02)" }}
+                className="flex items-center justify-between py-2 px-3"
+                style={{ borderRadius: "var(--input-radius)" }}
+                style={{ background: "var(--surface)" }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -1514,7 +1532,12 @@ function App() {
     onToggle: () => void;
   }) {
     return (
-      <div className="flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-all duration-200" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${BORDER}` }}>
+      <div className="flex items-center justify-between gap-4 transition-all duration-200" style={{ 
+        background: "var(--surface)", 
+        border: "var(--border)", 
+        borderRadius: "var(--card-radius)",
+        padding: "var(--card-pad)",
+      }}>
         <div>
           <div className="text-sm font-semibold" style={{ color: TEXT }}>
             {title}
@@ -1754,7 +1777,7 @@ function App() {
             <PrimaryButton 
               onClick={handleContinue} 
               disabled={!selectedFocus || saving}
-              style={{ height: "56px", borderRadius: radii.xl }}
+              style={{ height: "56px", borderRadius: "var(--btn-radius)" }}
             >
               {saving ? "Saving..." : "Continue"}
             </PrimaryButton>
@@ -2013,7 +2036,7 @@ function App() {
                         contentStyle={{
                           background: "rgba(10,10,14,0.95)",
                           border: `1px solid ${colors.border}`,
-                          borderRadius: radii.lg,
+                          borderRadius: "var(--input-radius)",
                           color: colors.text,
                           backdropFilter: "blur(12px)",
                         }}
@@ -2266,7 +2289,7 @@ function App() {
                               width={28}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: 12, color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any, _name: any, ctx: any) => [
                                 `RPE ${val}`,
@@ -2339,8 +2362,8 @@ function App() {
                     right={
                       <button
                         onClick={() => setModal({ type: "LIFT" })}
-                        className="rounded-xl px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -2441,8 +2464,8 @@ function App() {
                     right={
                       <button
                         onClick={() => setModal({ type: "CARDIO" })}
-                        className="rounded-xl px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -2532,8 +2555,8 @@ function App() {
                     right={
                       <button
                         onClick={() => setModal({ type: "RUN" })}
-                        className="rounded-xl px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -2584,18 +2607,19 @@ function App() {
                   <button
                     key={period}
                     onClick={() => setHealthPeriod(period)}
-                    className="px-4 py-2 text-sm font-medium rounded-xl transition-all duration-200"
-                    style={
-                      healthPeriod === period
+                    className="px-4 py-2 text-sm font-medium transition-all duration-200"
+                    style={{
+                      borderRadius: "var(--chip-radius)",
+                      ...(healthPeriod === period
                         ? {
                             background: ACCENT,
                             color: TEXT,
                           }
                         : {
-                            background: "rgba(255,255,255,0.05)",
+                            background: "var(--surface)",
                             color: MUTED,
-                          }
-                    }
+                          })
+                    }}
                   >
                     {period}
                   </button>
@@ -2633,7 +2657,14 @@ function App() {
                     {/* Top Row: Steps, Sleep, Heart - 3 columns */}
                     <div className="grid grid-cols-3 gap-2.5">
                       {/* Steps Card */}
-                      <div className="rounded-2xl p-3 relative" style={{ background: CARD, border: `1px solid ${BORDER}`, minHeight: "100px" }}>
+                      <div className="relative" style={{ 
+                        background: "var(--surface)", 
+                        border: "var(--border)", 
+                        borderRadius: "var(--card-radius)",
+                        padding: "var(--card-pad)",
+                        boxShadow: "var(--shadow)",
+                        minHeight: "100px" 
+                      }}>
                         <div className="flex items-center gap-1 mb-2" style={{ position: "relative", zIndex: 1 }}>
                           <Footprints className="w-[150px] h-[150px]" width={150} height={150} stroke={ACCENT} strokeWidth={2.5} style={{ opacity: 0.95 }} />
                           <div className="text-[9px] font-medium" style={{ color: MUTED }}>Steps</div>
@@ -2673,7 +2704,13 @@ function App() {
                       </div>
 
                       {/* Sleep Card */}
-                      <div className="rounded-2xl p-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                      <div style={{ 
+                        background: "var(--surface)", 
+                        border: "var(--border)", 
+                        borderRadius: "var(--card-radius)",
+                        padding: "var(--card-pad)",
+                        boxShadow: "var(--shadow)",
+                      }}>
                         <div className="flex items-center gap-1 mb-2">
                           <svg className="w-[150px] h-[35px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" style={{ width: "25px", height: "25px" }} />
@@ -2765,7 +2802,13 @@ function App() {
                       </div>
 
                       {/* Heart Rate Card */}
-                      <div className="rounded-2xl p-3" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                      <div style={{ 
+                        background: "var(--surface)", 
+                        border: "var(--border)", 
+                        borderRadius: "var(--card-radius)",
+                        padding: "var(--card-pad)",
+                        boxShadow: "var(--shadow)",
+                      }}>
                         <div className="flex items-center gap-1 mb-2">
                           <svg className="w-[150px] h-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: ACCENT, width: "150px" }}>
                             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
@@ -2851,7 +2894,13 @@ function App() {
                     </div>
 
                     {/* Charts */}
-                    <div className="rounded-2xl p-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                    <div style={{ 
+                      background: "var(--surface)", 
+                      border: "var(--border)", 
+                      borderRadius: "var(--card-radius)",
+                      padding: "var(--card-pad)",
+                      boxShadow: "var(--shadow)",
+                    }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Steps Trend</div>
                         <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
@@ -2880,7 +2929,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: 12, color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val.toLocaleString()} steps`, ""]}
                             />
@@ -2890,7 +2939,13 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl p-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                    <div style={{ 
+                      background: "var(--surface)", 
+                      border: "var(--border)", 
+                      borderRadius: "var(--card-radius)",
+                      padding: "var(--card-pad)",
+                      boxShadow: "var(--shadow)",
+                    }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Heart Rate</div>
                         <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
@@ -2913,7 +2968,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: 12, color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val} bpm`, ""]}
                             />
@@ -2930,7 +2985,13 @@ function App() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl p-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                    <div style={{ 
+                      background: "var(--surface)", 
+                      border: "var(--border)", 
+                      borderRadius: "var(--card-radius)",
+                      padding: "var(--card-pad)",
+                      boxShadow: "var(--shadow)",
+                    }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Sleep Hours</div>
                         <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
@@ -2953,7 +3014,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: 12, color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val.toFixed(1)}h`, ""]}
                             />
@@ -3041,8 +3102,8 @@ function App() {
       >
         <div className="space-y-3">
           <button
-            className="w-full rounded-xl px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}` }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
             onClick={() => setModal({ type: "LIFT" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
@@ -3053,8 +3114,8 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full rounded-xl px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}` }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
             onClick={() => setModal({ type: "CARDIO" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
@@ -3065,8 +3126,8 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full rounded-xl px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}` }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
             onClick={() => setModal({ type: "RUN" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
@@ -3139,7 +3200,7 @@ function App() {
                           boxShadow: "0 2px 6px rgba(0,0,255,0.3)",
                         }
                       : {
-                          background: "rgba(255,255,255,0.05)",
+                          background: "var(--surface)",
                           color: TEXT,
                           border: `1px solid ${BORDER}`,
                         }
@@ -3153,7 +3214,7 @@ function App() {
                   onClick={() => setLiftRPE(null)}
                   className="px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 active:scale-95"
                   style={{
-                    background: "rgba(255,255,255,0.05)",
+                    background: "var(--surface)",
                     color: MUTED,
                     border: `1px solid ${BORDER}`,
                   }}
@@ -3256,7 +3317,7 @@ function App() {
                       boxShadow: "0 2px 6px rgba(0,0,255,0.3)"
                     }
                   : { 
-                      background: "rgba(255,255,255,0.05)", 
+                      background: "var(--surface)", 
                       border: `1px solid ${BORDER}`, 
                       color: TEXT 
                     }
