@@ -21,11 +21,11 @@ export function MetricCardHeader({ icon, title }: MetricCardHeaderProps) {
         gap: "10px",
       }}
     >
-      {/* Icon container - fixed 28x28 */}
+      {/* Icon container - fixed 24x24 on mobile, 28x28 on larger screens */}
       <div
         style={{
-          width: "28px",
-          height: "28px",
+          width: "24px",
+          height: "24px",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -33,6 +33,7 @@ export function MetricCardHeader({ icon, title }: MetricCardHeaderProps) {
           opacity: 0.95,
           flexShrink: 0,
         }}
+        className="sm:w-7 sm:h-7"
       >
         {icon}
       </div>
