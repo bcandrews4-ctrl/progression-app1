@@ -1081,10 +1081,19 @@ function App() {
 
   // Determine mode based on session and profile state
   useEffect(() => {
-    if (sessionLoading || !dataLoaded) return;
+    // Wait for session to finish loading before determining mode
+    if (sessionLoading) {
+      return;
+    }
     
+    // If no session, always show auth
     if (!session?.user) {
       setMode("AUTH");
+      return;
+    }
+
+    // If data is still loading, wait (but we have a session)
+    if (!dataLoaded) {
       return;
     }
 
