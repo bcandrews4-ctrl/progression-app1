@@ -1801,23 +1801,71 @@ function App() {
         if (data.user) {
           console.log('[Signup] User created:', data.user.id);
           
-          // Ensure profile is created BEFORE navigation
-          const defaultData = buildEmptyData();
-          const { error: profileError } = await supabase.from("profiles").upsert({ 
-            id: data.user.id, 
-            data: defaultData 
-          });
+          // Wait for session to be established (critical for RLS policies)
+          // The session is needed for auth.uid() to work in RLS
+          let sessionEstablished = false;
+          let attempts = 0;
+          const maxAttempts = 10;
+          
+          while (!sessionEstablished && attempts < maxAttempts) {
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session?.user?.id === data.user.id) {
+              sessionEstablished = true;
+              console.log('[Signup] Session established after', attempts + 1, 'attempts');
+              break;
+            }
+            attempts++;
+            await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms between attempts
+          }
 
-          if (profileError) {
-            console.error('[Signup] Profile creation error:', profileError);
-            setAuthError('Failed to create profile. Please try again.');
+          if (!sessionEstablished) {
+            console.error('[Signup] Session not established after', maxAttempts, 'attempts');
+            setAuthError('Session initialization failed. Please try logging in.');
             setAuthLoading(false);
             return;
           }
 
-          console.log('[Signup] Profile created successfully');
+          // Now try to create/update profile with established session
+          const defaultData = buildEmptyData();
+          const { data: profileData, error: profileError } = await supabase
+            .from("profiles")
+            .upsert({ 
+              id: data.user.id, 
+              data: defaultData 
+            }, {
+              onConflict: 'id'
+            })
+            .select()
+            .single();
+
+          if (profileError) {
+            console.error('[Signup] Profile creation error:', profileError);
+            console.error('[Signup] Error details:', {
+              code: profileError.code,
+              message: profileError.message,
+              details: profileError.details,
+              hint: profileError.hint
+            });
+            
+            // Check if profile already exists (maybe created by trigger)
+            const { data: existingProfile } = await supabase
+              .from("profiles")
+              .select("id")
+              .eq("id", data.user.id)
+              .single();
+            
+            if (existingProfile) {
+              console.log('[Signup] Profile already exists (likely created by trigger)');
+              // Profile exists, we're good to go
+            } else {
+              setAuthError(`Failed to create profile: ${profileError.message || 'Unknown error'}. Please try again.`);
+              setAuthLoading(false);
+              return;
+            }
+          } else {
+            console.log('[Signup] Profile created/updated successfully:', profileData);
+          }
           
-          // Wait a moment for session to be established
           // The auth state change will trigger mode transition
           // Mode will automatically transition to ONBOARDING_FOCUS 
           // when session is established and profileTrainingFocus is null
@@ -2073,22 +2121,57 @@ function App() {
 
           if (!profileData) {
             console.log('[Welcome] Profile not found, creating...');
-            // Profile doesn't exist - create it
-            const defaultData = buildEmptyData();
-            const { error: upsertError } = await supabase.from("profiles").upsert({ 
-              id: session.user.id, 
-              data: defaultData
-            });
-
-            if (upsertError) {
-              console.error('[Welcome] Profile creation error:', upsertError);
-              setError('Failed to create profile. Please refresh.');
+            
+            // Ensure session is established before creating profile
+            const { data: sessionCheck } = await supabase.auth.getSession();
+            if (!sessionCheck?.session) {
+              console.error('[Welcome] No session available for profile creation');
+              setError('Session expired. Please log in again.');
               setLoading(false);
               return;
             }
 
-            console.log('[Welcome] Profile created successfully');
-            setProfileExists(true);
+            // Profile doesn't exist - create it
+            const defaultData = buildEmptyData();
+            const { data: createdProfile, error: upsertError } = await supabase
+              .from("profiles")
+              .upsert({ 
+                id: session.user.id, 
+                data: defaultData
+              }, {
+                onConflict: 'id'
+              })
+              .select()
+              .single();
+
+            if (upsertError) {
+              console.error('[Welcome] Profile creation error:', upsertError);
+              console.error('[Welcome] Error details:', {
+                code: upsertError.code,
+                message: upsertError.message,
+                details: upsertError.details,
+                hint: upsertError.hint
+              });
+              
+              // Check if profile was created by trigger in the meantime
+              const { data: retryCheck } = await supabase
+                .from("profiles")
+                .select("id")
+                .eq("id", session.user.id)
+                .single();
+              
+              if (retryCheck) {
+                console.log('[Welcome] Profile exists after retry (likely created by trigger)');
+                setProfileExists(true);
+              } else {
+                setError(`Failed to create profile: ${upsertError.message || 'Unknown error'}. Please refresh.`);
+                setLoading(false);
+                return;
+              }
+            } else {
+              console.log('[Welcome] Profile created successfully:', createdProfile);
+              setProfileExists(true);
+            }
           } else {
             console.log('[Welcome] Profile exists');
             setProfileExists(true);
