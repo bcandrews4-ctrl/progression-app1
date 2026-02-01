@@ -1967,15 +1967,15 @@ function App() {
           }
 
           // Now try to create/update profile with established session
-        const defaultData = buildEmptyData();
-        // CRITICAL: New profiles should have onboarding_complete=false
-        // AND focus=null so user must select their training focus
-        const profileDataWithOnboarding = {
-          ...defaultData,
-          focus: null, // User must select their focus
-          onboarding_complete: false,
-        };
-          console.log('[Signup] Creating profile with onboarding_complete=false');
+          const defaultData = buildEmptyData();
+          // CRITICAL: New profiles should have onboarding_complete=false
+          // AND focus=null so user must select their training focus
+          const profileDataWithOnboarding = {
+            ...defaultData,
+            focus: null, // User must select their focus
+            onboarding_complete: false,
+          };
+          console.log('[Signup] Creating profile with onboarding_complete=false, focus=null');
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .upsert({ 
