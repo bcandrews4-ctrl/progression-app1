@@ -7,16 +7,16 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const stravaClientId = process.env.STRAVA_CLIENT_ID;
 const stravaClientSecret = process.env.STRAVA_CLIENT_SECRET;
 const stravaRedirectUri = process.env.STRAVA_REDIRECT_URI;
-// Get app base URL from Vercel env vars
-const appBaseUrl = process.env.VERCEL_URL 
-  ? `https://${process.env.VERCEL_URL}` 
-  : process.env.VERCEL_PROJECT_PRODUCTION_URL
-  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  : process.env.VITE_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+// APP_BASE_URL is the single source of truth for post-auth redirects
+// Always use production domain, never derive from VERCEL_URL or request headers
+const appBaseUrl = process.env.APP_BASE_URL || 'https://hybrid-house-journal.tech';
 
 if (!supabaseUrl || !supabaseServiceKey || !stravaClientId || !stravaClientSecret || !stravaRedirectUri) {
   console.error('Missing required environment variables in callback');
 }
+
+console.log('Strava callback: Using appBaseUrl for redirects:', appBaseUrl);
 
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
@@ -30,18 +30,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Check environment variables
   if (!supabaseUrl || !supabaseServiceKey || !stravaClientId || !stravaClientSecret || !stravaRedirectUri || !supabase) {
     console.error('Strava callback: Missing environment variables');
-    return res.redirect(`${appBaseUrl}/profile?error=strava_config_error`);
+    return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_config_error`);
   }
 
   try {
     const { code, state, error } = req.query;
 
+    console.log('Strava callback: Received params', { 
+      hasCode: !!code, 
+      hasState: !!state, 
+      hasError: !!error,
+      appBaseUrl 
+    });
+
     if (error) {
-      return res.redirect(`${appBaseUrl}/profile?error=strava_denied`);
+      console.log('Strava callback: OAuth error from Strava:', error);
+      return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_denied`);
     }
 
     if (!code || !state) {
-      return res.redirect(`${appBaseUrl}/profile?error=strava_invalid`);
+      console.log('Strava callback: Missing code or state param');
+      return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_invalid`);
     }
 
     // Decode state to get user_id
@@ -50,8 +59,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const decodedState = Buffer.from(state as string, 'base64url').toString('utf-8');
       const [uid, ...rest] = decodedState.split(':');
       userId = uid;
+      console.log('Strava callback: Decoded user_id from state');
     } catch (e) {
-      return res.redirect(`${appBaseUrl}/profile?error=strava_invalid_state`);
+      console.error('Strava callback: Failed to decode state', e);
+      return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_invalid_state`);
     }
 
     // Exchange code for tokens
@@ -70,9 +81,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.text();
-      console.error('Strava token exchange error:', errorData);
-      return res.redirect(`${appBaseUrl}/profile?error=strava_token_exchange`);
+      console.error('Strava callback: Token exchange error:', errorData);
+      return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_token_exchange`);
     }
+    
+    console.log('Strava callback: Token exchange successful');
 
     const tokenData = await tokenResponse.json();
     const {
@@ -101,13 +114,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
     if (dbError) {
-      console.error('Database error:', dbError);
-      return res.redirect(`${appBaseUrl}/profile?error=strava_db_error`);
+      console.error('Strava callback: Database error:', dbError);
+      return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_db_error`);
     }
 
-    return res.redirect(`${appBaseUrl}/profile?connected=strava`);
+    console.log('Strava callback: Connection saved successfully, redirecting to app');
+    return res.redirect(`${appBaseUrl}/?tab=profile&connected=strava`);
   } catch (error: any) {
-    console.error('Strava callback error:', error);
-    return res.redirect(`${appBaseUrl}/profile?error=strava_callback_error`);
+    console.error('Strava callback: Unexpected error:', error);
+    return res.redirect(`${appBaseUrl}/?tab=profile&error=strava_callback_error`);
   }
 }

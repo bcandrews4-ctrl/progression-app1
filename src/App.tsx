@@ -1222,7 +1222,16 @@ function App() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('connected') === 'strava') {
           // Show success (you could add a toast here)
-          // Clean URL
+        }
+        
+        // Handle tab query parameter (for OAuth redirects)
+        const tabParam = urlParams.get('tab');
+        if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Profile'].includes(tabParam)) {
+          setTab(tabParam as AppTab);
+        }
+        
+        // Clean URL after processing params
+        if (urlParams.toString()) {
           window.history.replaceState({}, '', window.location.pathname);
         }
       } catch (error) {

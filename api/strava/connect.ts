@@ -8,6 +8,9 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const stravaClientId = process.env.STRAVA_CLIENT_ID;
 const stravaRedirectUri = process.env.STRAVA_REDIRECT_URI;
 
+// APP_BASE_URL is the single source of truth for post-auth redirects
+const appBaseUrl = process.env.APP_BASE_URL || 'https://hybrid-house-journal.tech';
+
 if (!supabaseUrl || !supabaseServiceKey || !stravaClientId || !stravaRedirectUri) {
   console.error('Missing required environment variables:', {
     supabaseUrl: !!supabaseUrl,
@@ -16,6 +19,9 @@ if (!supabaseUrl || !supabaseServiceKey || !stravaClientId || !stravaRedirectUri
     stravaRedirectUri: !!stravaRedirectUri,
   });
 }
+
+console.log('Strava connect: Using redirect_uri from env:', stravaRedirectUri);
+console.log('Strava connect: Using appBaseUrl for post-auth redirects:', appBaseUrl);
 
 const supabase = supabaseUrl && supabaseServiceKey 
   ? createClient(supabaseUrl, supabaseServiceKey)
@@ -62,9 +68,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const encodedState = Buffer.from(stateWithUserId).toString('base64url');
 
     // Build Strava authorization URL
+    // Use STRAVA_REDIRECT_URI from env only - do not derive from request
     const params = new URLSearchParams({
-      client_id: stravaClientId,
-      redirect_uri: stravaRedirectUri,
+      client_id: stravaClientId!,
+      redirect_uri: stravaRedirectUri!,
       response_type: 'code',
       scope: 'read,activity:read',
       state: encodedState,
@@ -72,6 +79,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const authUrl = `https://www.strava.com/oauth/authorize?${params.toString()}`;
+    
+    console.log('Strava connect: Redirecting to Strava with redirect_uri:', stravaRedirectUri);
 
     return res.redirect(302, authUrl);
   } catch (error: any) {

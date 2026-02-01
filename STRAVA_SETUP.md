@@ -44,11 +44,18 @@ Add these environment variables in Vercel Dashboard → Settings → Environment
    - Environments: Production, Preview, Development
 
 3. **STRAVA_REDIRECT_URI**
-   - Value: `https://your-app.vercel.app/api/strava/callback`
+   - Value: `https://hybrid-house-journal.tech/api/strava/callback`
    - Environments: Production, Preview, Development
    - **Important**: Must match exactly what you set in Strava app settings
+   - **Important**: Always use production domain, never preview URLs
 
-4. **SUPABASE_SERVICE_ROLE_KEY**
+4. **APP_BASE_URL**
+   - Value: `https://hybrid-house-journal.tech`
+   - Environments: Production, Preview, Development
+   - **Important**: This is the single source of truth for post-OAuth redirects
+   - Always redirects users back to production domain, never preview URLs
+
+5. **SUPABASE_SERVICE_ROLE_KEY**
    - Value: Your Supabase service role key (from Supabase Dashboard → Settings → API)
    - Environments: Production, Preview, Development
    - **Important**: This is different from the anon key - it's the service role key that bypasses RLS
