@@ -2229,14 +2229,24 @@ function App() {
           return;
         }
 
+        const userId = session.user.id;
         setLoading(true);
-        console.log('[Welcome] Checking profile for user:', session.user.id);
+        console.log('[Welcome] Checking profile for user:', userId);
+
+        // CRITICAL: Verify session is still valid before any DB operations
+        const { data: sessionCheck } = await supabase.auth.getSession();
+        if (!sessionCheck?.session?.user?.id || sessionCheck.session.user.id !== userId) {
+          console.error('[Welcome] Session invalid or changed, redirecting to auth');
+          setMode("AUTH");
+          setLoading(false);
+          return;
+        }
 
         try {
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .select("id, data")
-            .eq("id", session.user.id)
+            .eq("id", userId)
             .single();
 
           if (profileError && profileError.code !== 'PGRST116') {
@@ -2250,17 +2260,7 @@ function App() {
           if (!profileData) {
             console.log('[Welcome] Profile not found, creating...');
             
-            // Ensure session is established before creating profile
-            const { data: sessionCheck } = await supabase.auth.getSession();
-            if (!sessionCheck?.session) {
-              console.error('[Welcome] No session available for profile creation');
-              setError('Session expired. Please log in again.');
-              setLoading(false);
-              return;
-            }
-
-            // Profile doesn't exist - create it safely
-            // CRITICAL: Double-check session is valid and userId matches
+            // CRITICAL: Double-check session is valid and userId matches before creating
             const { data: finalSessionCheck } = await supabase.auth.getSession();
             if (!finalSessionCheck?.session?.user?.id || finalSessionCheck.session.user.id !== userId) {
               console.error('[Welcome] Session invalid before profile creation, aborting');
