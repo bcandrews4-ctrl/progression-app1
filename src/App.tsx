@@ -2631,6 +2631,15 @@ function App() {
   }
 
   if (mode === "ONBOARDING_FOCUS") {
+    // Show loading if profile is still loading
+    if (profileLoading) {
+      return <FullScreenLoader message="Loading..." />;
+    }
+    // Ensure we have a session before showing focus screen
+    if (!session?.user?.id) {
+      setMode("AUTH");
+      return <FullScreenLoader message="Redirecting..." />;
+    }
     return <TrainingFocusScreen />;
   }
 
