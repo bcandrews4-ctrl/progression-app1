@@ -13,12 +13,18 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
     // Set CSS variables
     document.documentElement.style.setProperty("--tabbar-h", "84px");
     document.documentElement.style.setProperty("--tabbar-bottom-offset", "12px");
+    document.documentElement.style.setProperty("--safe-bottom", "env(safe-area-inset-bottom, 0px)");
+    
+    // Ensure body and html have black background
+    document.body.style.background = "#000000";
+    document.documentElement.style.background = "#000000";
     
     // Prevent body scroll
     document.body.style.overflow = "hidden";
     document.body.style.height = "100dvh";
     document.body.style.margin = "0";
     document.body.style.padding = "0";
+    document.body.style.overscrollBehaviorY = "none";
     
     return () => {
       // Cleanup on unmount
@@ -26,6 +32,9 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
       document.body.style.height = "";
       document.body.style.margin = "";
       document.body.style.padding = "";
+      document.body.style.background = "";
+      document.body.style.overscrollBehaviorY = "";
+      document.documentElement.style.background = "";
     };
   }, []);
 
@@ -64,6 +73,8 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
           overflowY: "auto",
           overflowX: "hidden",
           WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "none",
+          background: colors.bg,
           paddingLeft: "var(--page-pad-x)",
           paddingRight: "var(--page-pad-x)",
           paddingTop: header ? "0" : "calc(16px + env(safe-area-inset-top, 0px))",
@@ -84,7 +95,10 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
             zIndex: 50,
             display: "flex",
             justifyContent: "center",
+            alignItems: "flex-end",
+            background: colors.bg,
             paddingBottom: "calc(var(--tabbar-bottom-offset) + env(safe-area-inset-bottom, 0px))",
+            minHeight: "calc(var(--tabbar-h) + var(--tabbar-bottom-offset) + env(safe-area-inset-bottom, 0px))",
             pointerEvents: "none",
           }}
         >
