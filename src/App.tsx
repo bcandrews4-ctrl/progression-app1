@@ -1054,25 +1054,66 @@ function App() {
     health: healthData,
   });
 
+  // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session ? { user: { id: data.session.user.id } } : null);
-      setSessionLoading(false);
-    });
+    
+    const initializeAuth = async () => {
+      console.log('[AuthBootstrap] Initializing auth session...');
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (!mounted) return;
+        
+        if (error) {
+          console.error('[AuthBootstrap] Error getting session:', error);
+          setSession(null);
+          setSessionLoading(false);
+          return;
+        }
+
+        if (data.session?.user?.id) {
+          console.log('[AuthBootstrap] Session found, user id:', data.session.user.id);
+          // Only set session if we have a valid user ID from the session
+          setSession({ user: { id: data.session.user.id } });
+        } else {
+          console.log('[AuthBootstrap] No session found');
+          setSession(null);
+        }
+      } catch (err) {
+        console.error('[AuthBootstrap] Unexpected error:', err);
+        setSession(null);
+      } finally {
+        if (mounted) {
+          setSessionLoading(false);
+        }
+      }
+    };
+
+    initializeAuth();
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, nextSession) => {
       if (!mounted) return;
-      setSession(nextSession ? { user: { id: nextSession.user.id } } : null);
-      setSessionLoading(false);
-      // Reset welcome seen on logout
-      if (!nextSession) {
+      
+      console.log('[AuthBootstrap] Auth state changed:', event, nextSession?.user?.id);
+      
+      if (nextSession?.user?.id) {
+        console.log('[AuthBootstrap] New session, user id:', nextSession.user.id);
+        // Only set session if we have a valid user ID
+        setSession({ user: { id: nextSession.user.id } });
+      } else {
+        console.log('[AuthBootstrap] Session cleared');
+        setSession(null);
+        // Reset welcome seen on logout
         setWelcomeSeen(false);
         setMode("AUTH");
       }
+      
+      setSessionLoading(false);
     });
+    
     return () => {
       mounted = false;
       subscription.unsubscribe();
@@ -1113,21 +1154,44 @@ function App() {
     setMode("APP");
   }, [session, sessionLoading, dataLoaded, profileTrainingFocus, welcomeSeen]);
 
+  // Safe profile loading - only runs with valid authenticated session
   useEffect(() => {
-    const userId = session?.user.id;
-    if (!userId) {
+    // CRITICAL: Wait for session loading to complete
+    if (sessionLoading) {
+      console.log('[ProfileLoader] Waiting for session to load...');
+      return;
+    }
+
+    // CRITICAL: Hard guard - no profile operations without valid session
+    if (!session?.user?.id) {
+      console.log('[ProfileLoader] No session, resetting state');
       setDataLoaded(false);
       applyUserData(emptyData);
-      setMode("AUTH");
       setProfileTrainingFocus(null);
       return;
     }
 
+    const userId = session.user.id;
+    console.log('[ProfileLoader] Starting profile load for user:', userId);
+
     let cancelled = false;
     const loadProfile = async () => {
+      // Verify session is still valid before proceeding
+      const { data: currentSession } = await supabase.auth.getSession();
+      if (!currentSession?.session?.user?.id || currentSession.session.user.id !== userId) {
+        console.error('[ProfileLoader] Session invalid or changed, aborting');
+        if (!cancelled) {
+          setDataLoaded(false);
+          applyUserData(emptyData);
+          setProfileTrainingFocus(null);
+        }
+        return;
+      }
+
       setDataLoaded(false);
       
-      // First, ensure profile exists
+      // First, try to fetch existing profile
+      console.log('[ProfileLoader] Fetching profile for user:', userId);
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("data")
@@ -1140,25 +1204,65 @@ function App() {
       const pendingGoal = localStorage.getItem(`pending_goal_${userId}`);
       
       if (profileError || !profileData) {
+        // Profile doesn't exist - create it safely
         console.log('[ProfileLoader] Profile not found, creating default profile');
-        // Profile doesn't exist - create it
+        
+        // Double-check session is still valid before creating profile
+        const { data: sessionCheck } = await supabase.auth.getSession();
+        if (!sessionCheck?.session?.user?.id || sessionCheck.session.user.id !== userId) {
+          console.error('[ProfileLoader] Session invalid before profile creation, aborting');
+          if (!cancelled) {
+            setDataLoaded(false);
+            applyUserData(emptyData);
+            setProfileTrainingFocus(null);
+          }
+          return;
+        }
+
         const defaultData = buildEmptyData();
         if (pendingGoal) {
           console.log('[ProfileLoader] Applying pending goal:', pendingGoal);
           defaultData.focus = pendingGoal as TrainingFocus;
           localStorage.removeItem(`pending_goal_${userId}`);
         }
-        const { error: upsertError } = await supabase.from("profiles").upsert({ 
-          id: userId, 
-          data: defaultData
-        });
+
+        console.log('[ProfileLoader] Upserting profile with id:', userId);
+        const { data: createdProfile, error: upsertError } = await supabase
+          .from("profiles")
+          .upsert({ 
+            id: userId, 
+            data: defaultData
+          }, {
+            onConflict: 'id'
+          })
+          .select()
+          .single();
+
+        if (cancelled) return;
+
         if (upsertError) {
           console.error('[ProfileLoader] Failed to create profile:', upsertError);
-        } else {
-          console.log('[ProfileLoader] Profile created successfully');
+          console.error('[ProfileLoader] Error details:', {
+            code: upsertError.code,
+            message: upsertError.message,
+            details: upsertError.details,
+            hint: upsertError.hint
+          });
+          
+          // Don't apply data if profile creation failed
+          if (!cancelled) {
+            setDataLoaded(false);
+            applyUserData(emptyData);
+            setProfileTrainingFocus(null);
+          }
+          return;
         }
-        applyUserData(defaultData);
-        setProfileTrainingFocus(defaultData.focus || null);
+
+        console.log('[ProfileLoader] Profile created successfully:', createdProfile);
+        if (!cancelled) {
+          applyUserData(defaultData);
+          setProfileTrainingFocus(defaultData.focus || null);
+        }
       } else {
         console.log('[ProfileLoader] Profile found, loading data');
         const userData = profileData.data as UserData | null;
@@ -1173,25 +1277,32 @@ function App() {
             data: updatedData
           }).eq("id", userId);
           localStorage.removeItem(`pending_goal_${userId}`);
-          setProfileTrainingFocus(pendingGoal as TrainingFocus);
-          applyUserData(updatedData);
-        } else {
-          if (userData) {
-            applyUserData(userData);
+          if (!cancelled) {
+            setProfileTrainingFocus(pendingGoal as TrainingFocus);
+            applyUserData(updatedData);
           }
-          setProfileTrainingFocus(trainingFocus);
-          console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus);
+        } else {
+          if (!cancelled) {
+            if (userData) {
+              applyUserData(userData);
+            }
+            setProfileTrainingFocus(trainingFocus);
+            console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus);
+          }
         }
       }
-      console.log('[ProfileLoader] Data loading complete');
-      setDataLoaded(true);
+      
+      if (!cancelled) {
+        console.log('[ProfileLoader] Data loading complete');
+        setDataLoaded(true);
+      }
     };
 
     loadProfile();
     return () => {
       cancelled = true;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, sessionLoading]);
 
   useEffect(() => {
     const userId = session?.user.id;
@@ -2148,12 +2259,22 @@ function App() {
               return;
             }
 
-            // Profile doesn't exist - create it
+            // Profile doesn't exist - create it safely
+            // CRITICAL: Double-check session is valid and userId matches
+            const { data: finalSessionCheck } = await supabase.auth.getSession();
+            if (!finalSessionCheck?.session?.user?.id || finalSessionCheck.session.user.id !== userId) {
+              console.error('[Welcome] Session invalid before profile creation, aborting');
+              setError('Session expired. Please log in again.');
+              setLoading(false);
+              return;
+            }
+
             const defaultData = buildEmptyData();
+            console.log('[Welcome] Upserting profile with id:', userId);
             const { data: createdProfile, error: upsertError } = await supabase
               .from("profiles")
               .upsert({ 
-                id: session.user.id, 
+                id: userId, 
                 data: defaultData
               }, {
                 onConflict: 'id'
@@ -2219,19 +2340,60 @@ function App() {
       );
     }
 
-    // Show error state
+    // Show error state with retry option
     if (error) {
       return (
         <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
           <div className="w-full max-w-[480px] px-6 text-center">
             <GlassCard className="space-y-4">
               <p className="text-base" style={{ color: colors.text }}>{error}</p>
-              <PrimaryButton 
-                onClick={() => window.location.reload()}
-                style={{ height: "56px", borderRadius: radii.xl }}
-              >
-                Refresh
-              </PrimaryButton>
+              <div className="flex gap-3">
+                <PrimaryButton 
+                  onClick={() => {
+                    setError(null);
+                    setLoading(true);
+                    // Retry profile check
+                    const checkProfile = async () => {
+                      if (!session?.user?.id) {
+                        setMode("AUTH");
+                        return;
+                      }
+                      try {
+                        const { data: profileData } = await supabase
+                          .from("profiles")
+                          .select("id, data")
+                          .eq("id", session.user.id)
+                          .single();
+                        if (profileData) {
+                          setProfileExists(true);
+                        } else {
+                          setError('Profile not found. Please try refreshing.');
+                        }
+                      } catch (err: any) {
+                        setError(`Error: ${err.message || 'Unknown error'}`);
+                      } finally {
+                        setLoading(false);
+                      }
+                    };
+                    checkProfile();
+                  }}
+                  style={{ flex: 1, height: "56px", borderRadius: radii.xl }}
+                >
+                  Retry
+                </PrimaryButton>
+                <PrimaryButton 
+                  onClick={() => window.location.reload()}
+                  style={{ 
+                    flex: 1, 
+                    height: "56px", 
+                    borderRadius: radii.xl,
+                    background: 'transparent',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                  }}
+                >
+                  Refresh
+                </PrimaryButton>
+              </div>
             </GlassCard>
           </div>
         </div>
