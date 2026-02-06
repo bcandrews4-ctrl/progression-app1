@@ -1,4 +1,5 @@
 import React from "react";
+import { colors } from "../styles/tokens";
 
 interface CardHeaderProps {
   title: string;
@@ -25,7 +26,7 @@ export function CardHeader({ title, action, className = "" }: CardHeaderProps) {
         style={{
           fontSize: "15px",
           fontWeight: 600,
-          color: "#FFFFFF",
+          color: colors.text,
         }}
       >
         {title}

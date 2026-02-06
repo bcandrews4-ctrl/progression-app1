@@ -33,10 +33,10 @@ export function SegmentedControl<T extends string>({
             onClick={() => setValue(o.value)}
             className="text-sm font-medium transition-all duration-200"
             style={{
-              background: active ? "#0000ff" : "transparent",
-              color: active ? "#FFFFFF" : "rgba(255,255,255,0.75)",
+              background: active ? colors.accent : "transparent",
+              color: active ? colors.text : "rgba(255,255,255,0.75)",
               borderRadius: "var(--chip-radius)",
-              boxShadow: active ? "0 0 18px rgba(0,0,255,0.25)" : "none",
+              boxShadow: active ? shadows.glow : "none",
               padding: "12px 14px",
               flex: 1,
               minWidth: 0,
