@@ -838,8 +838,7 @@ function GroupedLiftRow({
               onSelectLift();
             }}
             className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
-            style={{ borderRadius: "var(--chip-radius)" }}
-            style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
+            style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
           </button>
@@ -862,8 +861,7 @@ function GroupedLiftRow({
               <div
                 key={entry.id}
                 className="flex items-center justify-between py-2 px-3"
-                style={{ borderRadius: "var(--input-radius)" }}
-                style={{ background: "var(--surface)" }}
+                style={{ borderRadius: "var(--input-radius)", background: "var(--surface)" }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -931,8 +929,7 @@ function GroupedCardioRow({
               onSelectMachine();
             }}
             className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
-            style={{ borderRadius: "var(--chip-radius)" }}
-            style={{ background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
+            style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
           </button>
@@ -955,8 +952,7 @@ function GroupedCardioRow({
               <div
                 key={entry.id}
                 className="flex items-center justify-between py-2 px-3"
-                style={{ borderRadius: "var(--input-radius)" }}
-                style={{ background: "var(--surface)" }}
+                style={{ borderRadius: "var(--input-radius)", background: "var(--surface)" }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -3396,7 +3392,7 @@ function App() {
                   );
                 }
 
-                const latest = filtered[filtered.length - 1];
+                const latest = filtered[0]; // healthData is sorted newest-first (index 0 = today)
                 const avgSteps = filtered.reduce((sum, h) => sum + h.steps, 0) / filtered.length;
                 const avgSleep = filtered.reduce((sum, h) => sum + h.sleepHours, 0) / filtered.length;
                 const avgBPM = filtered.reduce((sum, h) => sum + h.avgBPM, 0) / filtered.length;

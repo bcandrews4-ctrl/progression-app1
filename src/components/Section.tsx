@@ -1,4 +1,5 @@
 import React from "react";
+import { colors } from "../styles/tokens";
 
 interface SectionProps {
   children: React.ReactNode;
@@ -25,7 +26,7 @@ export function Section({ children, className = "", title, gap = "var(--section-
           style={{
             fontSize: "15px",
             fontWeight: 600,
-            color: "rgba(255,255,255,0.65)",
+            color: colors.muted,
             marginBottom: "4px",
           }}
         >

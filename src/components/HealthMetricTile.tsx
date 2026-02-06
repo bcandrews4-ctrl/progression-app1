@@ -1,6 +1,5 @@
 import React from "react";
 import { colors, radii } from "../styles/tokens";
-import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 interface HealthMetricTileProps {
   title: string;
