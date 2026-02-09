@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2 } from "lucide-react";
 
 import {
   LineChart,
@@ -17,15 +17,6 @@ import {
 
 import { colors, radii, shadows, gradients, typography } from "./styles/tokens";
 import { supabase } from "./lib/supabase";
-import { 
-  fetchStravaConnection, 
-  connectStrava, 
-  syncStrava, 
-  disconnectStrava, 
-  fetchStravaActivities,
-  mapStravaTypeToCategory,
-  type StravaActivity 
-} from "./lib/strava";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -46,7 +37,16 @@ type LiftType =
   | "Back Squat"
   | "Front Squat"
   | "Bench Press"
-  | "Incline Bench Press";
+  | "Incline Bench Press"
+  | "Incline Bench"
+  | "Pendlay Row"
+  | "Devils Press"
+  | "Step Forward Lunge"
+  | "Box Squat"
+  | "Sumo Deadlift"
+  | "Power Clean"
+  | "Hang Clean"
+  | "Shoulder Press";
 
 type CardioMachine = "RowErg" | "BikeErg" | "SkiErg" | "Assault Bike";
 
@@ -123,6 +123,23 @@ const CARD2 = colors.cardBg2;
 const MUTED = colors.muted;
 const TEXT = colors.text;
 const BORDER = colors.border;
+
+const LIFT_OPTIONS: LiftType[] = [
+  "Bench Press",
+  "Incline Bench Press",
+  "Incline Bench",
+  "Deadlift",
+  "Sumo Deadlift",
+  "Back Squat",
+  "Box Squat",
+  "Front Squat",
+  "Pendlay Row",
+  "Devils Press",
+  "Step Forward Lunge",
+  "Power Clean",
+  "Hang Clean",
+  "Shoulder Press",
+];
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -312,6 +329,10 @@ function formatDateShort(iso: string) {
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
 }
 
+function ensureDateISO(value?: string) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayISO();
+}
+
 function buildSampleData() {
   const focus: TrainingFocus = "HYBRID";
 
@@ -412,7 +433,7 @@ function buildEmptyData() {
       sleepStages: [],
     });
   }
-  return { focus, lifts, cardio, runs, imported, health };
+  return { focus, lifts, cardio, runs, imported, health, onboarding_complete: false };
 }
 
 // Helper function to generate sleep stages data
@@ -533,21 +554,31 @@ function Modal({
   title,
   onClose,
   children,
+  centered = false,
+  maxWidth = "sm:max-w-lg",
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  centered?: boolean;
+  maxWidth?: string;
 }) {
   if (!open) return null;
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" 
+      className={classNames(
+        "fixed inset-0 z-50 flex justify-center",
+        centered ? "items-center" : "items-end sm:items-center"
+      )}
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-6"
+        className={classNames(
+          "w-full rounded-t-3xl sm:rounded-3xl p-6",
+          maxWidth
+        )}
         style={{ background: "var(--surface)", border: "var(--border)", boxShadow: "var(--shadow)" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -760,16 +791,30 @@ function HistoryRow({
   subtitle,
   right,
   onClick,
+  onDelete,
 }: {
   title: string;
   subtitle: string;
   right: string;
   onClick?: () => void;
+  onDelete?: () => void;
 }) {
   return (
-    <button
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : -1}
       onClick={onClick}
-      className={classNames("w-full text-left px-4 py-3 transition-all duration-200", onClick ? "hover:opacity-90 active:scale-[0.98]" : "")}
+      onKeyDown={(e) => {
+        if (!onClick) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={classNames(
+        "w-full text-left px-4 py-3 transition-all duration-200",
+        onClick ? "cursor-pointer hover:opacity-90 active:scale-[0.98]" : ""
+      )}
       style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: "var(--border)" }}
     >
       <div className="flex items-center justify-between gap-4">
@@ -781,11 +826,74 @@ function HistoryRow({
             {subtitle}
           </div>
         </div>
-        <div className="text-sm font-medium" style={{ color: TEXT }}>
-          {right}
+        <div className="flex items-center gap-3">
+          <div className="text-sm font-medium" style={{ color: TEXT }}>
+            {right}
+          </div>
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:opacity-90 active:scale-95"
+              style={{ border: `1px solid ${BORDER}`, color: MUTED }}
+              aria-label="Delete entry"
+              title="Delete entry"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
-    </button>
+    </div>
+  );
+}
+
+function ConnectRow({
+  title,
+  subtitle,
+  enabled,
+  onToggle,
+}: {
+  title: string;
+  subtitle: string;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 transition-all duration-200" style={{
+      background: "var(--surface)",
+      border: "var(--border)",
+      borderRadius: "var(--card-radius)",
+      padding: "var(--card-pad)",
+    }}>
+      <div>
+        <div className="text-sm font-semibold" style={{ color: TEXT }}>
+          {title}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+          {subtitle}
+        </div>
+      </div>
+      <button
+        onClick={onToggle}
+        className="w-12 h-7 rounded-full p-1 transition-all duration-200 active:scale-95"
+        style={{
+          background: enabled ? ACCENT : "rgba(255,255,255,0.1)",
+          border: enabled ? `1px solid rgba(0,0,255,0.6)` : `1px solid ${BORDER}`,
+          boxShadow: enabled ? "0 2px 6px rgba(0,0,255,0.3)" : "none",
+        }}
+      >
+        <div
+          className="w-5 h-5 rounded-full transition-all duration-200"
+          style={{
+            background: TEXT,
+            transform: enabled ? "translateX(20px)" : "translateX(0px)",
+          }}
+        />
+      </button>
+    </div>
   );
 }
 
@@ -795,12 +903,14 @@ function GroupedLiftRow({
   isExpanded,
   onToggle,
   onSelectLift,
+  onDeleteEntry,
 }: {
   liftType: LiftType;
   entries: LiftEntry[];
   isExpanded: boolean;
   onToggle: () => void;
   onSelectLift: () => void;
+  onDeleteEntry: (id: string) => void;
 }) {
   const sortedEntries = [...entries].sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
   const latest = sortedEntries[0];
@@ -868,8 +978,19 @@ function GroupedLiftRow({
                     {formatDateShort(entry.dateISO)}
                   </div>
                 </div>
-                <div className="text-xs font-semibold" style={{ color: TEXT }}>
-                  {entry.weightKg} kg × {entry.reps}{entry.rpe ? ` · RPE ${entry.rpe}` : ""}
+                <div className="flex items-center gap-3">
+                  <div className="text-xs font-semibold" style={{ color: TEXT }}>
+                    {entry.weightKg} kg × {entry.reps}{entry.rpe ? ` · RPE ${entry.rpe}` : ""}
+                  </div>
+                  <button
+                    onClick={() => onDeleteEntry(entry.id)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 hover:opacity-90 active:scale-95"
+                    style={{ border: `1px solid ${BORDER}`, color: MUTED }}
+                    aria-label="Delete lift entry"
+                    title="Delete entry"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -886,12 +1007,14 @@ function GroupedCardioRow({
   isExpanded,
   onToggle,
   onSelectMachine,
+  onDeleteEntry,
 }: {
   machine: CardioMachine;
   entries: CardioEntry[];
   isExpanded: boolean;
   onToggle: () => void;
   onSelectMachine: () => void;
+  onDeleteEntry: (id: string) => void;
 }) {
   const sortedEntries = [...entries].sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
   const latest = sortedEntries[0];
@@ -959,8 +1082,19 @@ function GroupedCardioRow({
                     {formatDateShort(entry.dateISO)} • {entry.seconds}s
                   </div>
                 </div>
-                <div className="text-xs font-semibold" style={{ color: TEXT }}>
-                  {entry.calories} cal
+                <div className="flex items-center gap-3">
+                  <div className="text-xs font-semibold" style={{ color: TEXT }}>
+                    {entry.calories} cal
+                  </div>
+                  <button
+                    onClick={() => onDeleteEntry(entry.id)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center transition-all duration-200 hover:opacity-90 active:scale-95"
+                    style={{ border: `1px solid ${BORDER}`, color: MUTED }}
+                    aria-label="Delete cardio entry"
+                    title="Delete entry"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -972,6 +1106,20 @@ function GroupedCardioRow({
 }
 
 type UserData = ReturnType<typeof buildEmptyData>;
+
+function FullScreenLoader({ message = "Loading..." }: { message?: string }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
+      <div className="text-center">
+        <div className="w-16 h-16 border-4 border-t-transparent rounded-full mx-auto mb-4 animate-spin" style={{
+          borderColor: ACCENT,
+          borderTopColor: 'transparent',
+        }} />
+        <p className="text-sm" style={{ color: MUTED }}>{message}</p>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   const emptyData = useMemo(() => buildEmptyData(), []);
@@ -1015,15 +1163,6 @@ function App() {
 
   const [modal, setModal] = useState<null | { type: "ADD" | "LIFT" | "CARDIO" | "RUN" }>(null);
   
-  // --- Strava integration
-  const [stravaConnection, setStravaConnection] = useState<{
-    athlete_name: string | null;
-    last_sync_at: string | null;
-  } | null>(null);
-  const [stravaActivities, setStravaActivities] = useState<any[]>([]);
-  const [stravaLoading, setStravaLoading] = useState(false);
-  const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
-
   // --- Auth & Onboarding
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1052,6 +1191,7 @@ function App() {
     runs,
     imported,
     health: healthData,
+    onboarding_complete: onboardingComplete,
   });
 
   // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
@@ -1341,74 +1481,29 @@ function App() {
     };
   }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded]);
 
-  // --- Load Strava connection and activities
+  // Handle URL tab query parameter
   useEffect(() => {
-    if (!session?.user.id) {
-      setStravaConnection(null);
-      setStravaActivities([]);
-      return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Profile'].includes(tabParam)) {
+      setTab(tabParam as AppTab);
     }
-
-    let cancelled = false;
-
-    const loadStrava = async () => {
-      try {
-        const connection = await fetchStravaConnection();
-        if (cancelled) return;
-        setStravaConnection(connection ? {
-          athlete_name: connection.athlete_name,
-          last_sync_at: connection.last_sync_at,
-        } : null);
-
-        if (connection) {
-          const activities = await fetchStravaActivities();
-          if (!cancelled) {
-            setStravaActivities(activities);
-          }
-        } else {
-          setStravaActivities([]);
-        }
-        
-        // Check for URL params (from OAuth callback)
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('connected') === 'strava') {
-          // Show success (you could add a toast here)
-        }
-        
-        // Handle tab query parameter (for OAuth redirects)
-        const tabParam = urlParams.get('tab');
-        if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Profile'].includes(tabParam)) {
-          setTab(tabParam as AppTab);
-        }
-        
-        // Clean URL after processing params
-        if (urlParams.toString()) {
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-      } catch (error) {
-        console.error('Error loading Strava:', error);
-        if (!cancelled) {
-          setStravaConnection(null);
-          setStravaActivities([]);
-        }
-      }
-    };
-
-    loadStrava();
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user.id]);
+    if (urlParams.toString()) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
   const [liftReps, setLiftReps] = useState("");
   const [liftRPE, setLiftRPE] = useState<number | null>(null);
   const [showRPEInfo, setShowRPEInfo] = useState(false);
+  const [liftDate, setLiftDate] = useState(todayISO());
 
   // --- Cardio form
   const [cardioCalories, setCardioCalories] = useState("");
   const [cardioSeconds, setCardioSeconds] = useState("60");
+  const [cardioDate, setCardioDate] = useState(todayISO());
 
   // --- Run form
   const [runDistance, setRunDistance] = useState("800");
@@ -1416,6 +1511,13 @@ function App() {
   const [runInputType, setRunInputType] = useState<"TIME" | "PACE">("TIME");
   const [runTime, setRunTime] = useState("3:45");
   const [runPace, setRunPace] = useState("4:45");
+  const [runDate, setRunDate] = useState(todayISO());
+
+  useEffect(() => {
+    if (modal?.type === "LIFT") setLiftDate(todayISO());
+    if (modal?.type === "CARDIO") setCardioDate(todayISO());
+    if (modal?.type === "RUN") setRunDate(todayISO());
+  }, [modal?.type]);
 
   useEffect(() => {
     // Prefill lift form from selected
@@ -1458,26 +1560,8 @@ function App() {
   }, [range]);
 
   const overviewSeries = useMemo(
-    () => {
-      // Convert Strava activities to imported format for series
-      const stravaAsImported = stravaActivities.map((a) => ({
-        id: `strava-${a.id}`,
-        dateISO: a.start_date.split('T')[0],
-        source: 'Strava',
-        workoutType: mapStravaTypeToCategory(a.type) === 'Running' ? 'Run' : 'Cardio',
-        minutes: a.moving_time / 60,
-        activeCalories: a.calories ?? null,
-      }));
-      
-      return buildOverviewSeries({
-        rangeDays,
-        lifts,
-        cardio,
-        runs,
-        imported: [...imported, ...stravaAsImported],
-      });
-    },
-    [rangeDays, lifts, cardio, runs, imported, stravaActivities]
+    () => buildOverviewSeries({ rangeDays, lifts, cardio, runs, imported }),
+    [rangeDays, lifts, cardio, runs, imported]
   );
 
   const stats = useMemo(() => {
@@ -1485,27 +1569,13 @@ function App() {
     const cardioInRange = cardio.filter((x) => withinLastDays(x.dateISO, rangeDays));
     const runsInRange = runs.filter((x) => withinLastDays(x.dateISO, rangeDays));
     const importedInRange = imported.filter((x) => withinLastDays(x.dateISO, rangeDays));
-    
-    // Filter Strava activities by date range
-    const stravaInRange = stravaActivities.filter((a) => {
-      const dateISO = a.start_date.split('T')[0];
-      return withinLastDays(dateISO, rangeDays);
-    });
 
-    const workouts = liftsInRange.length + cardioInRange.length + runsInRange.length + importedInRange.length + stravaInRange.length;
+    const workouts = liftsInRange.length + cardioInRange.length + runsInRange.length + importedInRange.length;
     const liftedTons = calcLiftedTonnage(liftsInRange);
     const reps = sum(liftsInRange, (l) => l.reps);
     const heaviest = calcHeaviest(liftsInRange);
-    
-    // Sum time: imported minutes + Strava moving_time (convert to minutes)
-    const importedMinutes = sum(importedInRange, (w) => w.minutes);
-    const stravaMinutes = sum(stravaInRange, (a) => a.moving_time / 60);
-    const minutes = importedMinutes + stravaMinutes;
-    
-    // Sum calories: imported + Strava
-    const importedCals = sum(importedInRange, (w) => w.activeCalories ?? 0);
-    const stravaCals = sum(stravaInRange, (a) => a.calories ?? 0);
-    const activeCals = importedCals + stravaCals;
+    const minutes = sum(importedInRange, (w) => w.minutes);
+    const activeCals = sum(importedInRange, (w) => w.activeCalories ?? 0);
 
     return {
       workouts,
@@ -1515,7 +1585,7 @@ function App() {
       timeHrs: minutes / 60,
       activeCals,
     };
-  }, [lifts, cardio, runs, imported, stravaActivities, rangeDays]);
+  }, [lifts, cardio, runs, imported, rangeDays]);
 
   const groupedLifts = useMemo(() => {
     const groups = new Map<LiftType, LiftEntry[]>();
@@ -1538,12 +1608,16 @@ function App() {
   }, [cardio]);
 
   const journalItems = useMemo(() => {
-    const items: Array<
-      | { type: "lift"; dateISO: string; title: string; subtitle: string; right: string; key: string; onClick: () => void }
-      | { type: "cardio"; dateISO: string; title: string; subtitle: string; right: string; key: string; onClick: () => void }
-      | { type: "run"; dateISO: string; title: string; subtitle: string; right: string; key: string; onClick: () => void }
-      | { type: "import"; dateISO: string; title: string; subtitle: string; right: string; key: string }
-    > = [];
+    const items: Array<{
+      type: "lift" | "cardio" | "run" | "import";
+      dateISO: string;
+      title: string;
+      subtitle: string;
+      right: string;
+      key: string;
+      onClick?: () => void;
+      onDelete?: () => void;
+    }> = [];
 
     // Only add individual lift items if not showing lifts tab (for All tab)
     if (journalTab !== "Lifts") {
@@ -1561,6 +1635,7 @@ function App() {
           setTab("Progress");
           setProgressFilter("Lifts");
         },
+        onDelete: () => deleteLiftEntry(l.id),
       });
       }
     }
@@ -1580,6 +1655,7 @@ function App() {
           setTab("Progress");
           setProgressFilter("Cardio");
         },
+        onDelete: () => deleteCardioEntry(c.id),
       });
       }
     }
@@ -1599,6 +1675,7 @@ function App() {
           setTab("Progress");
           setProgressFilter("Running");
         },
+        onDelete: () => deleteRunEntry(r.id),
       });
     }
 
@@ -1613,96 +1690,18 @@ function App() {
       });
     }
 
-    // Add Strava activities
-    for (const activity of stravaActivities) {
-      const category = mapStravaTypeToCategory(activity.type);
-      const dateISO = activity.start_date.split('T')[0]; // Extract date part
-      
-      // Format display based on activity type
-      let title = activity.name || activity.type;
-      let subtitle = `${formatDateShort(dateISO)}`;
-      let right = '';
-      
-      if (category === 'Running' && activity.distance_m) {
-        const distKm = activity.distance_m / 1000;
-        const timeMin = activity.moving_time / 60;
-        const pace = timeMin / distKm;
-        subtitle += ` • ${distKm.toFixed(2)}km • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        right = `${Math.floor(pace)}:${String(Math.floor((pace % 1) * 60)).padStart(2, '0')}/km`;
-      } else if (category === 'Cardio') {
-        const timeMin = activity.moving_time / 60;
-        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        if (activity.calories) {
-          right = `${activity.calories} cal`;
-        } else if (activity.average_heartrate) {
-          right = `HR ${Math.round(activity.average_heartrate)}`;
-        } else {
-          right = activity.type;
-        }
-      } else {
-        const timeMin = activity.moving_time / 60;
-        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        right = activity.type;
-      }
-
-      const onClickFn = category === 'Running' ? () => {
-        setSelectedRunDistance(activity.distance_m ? Math.round(activity.distance_m) : 800);
-        setTab("Progress");
-        setProgressFilter("Running");
-      } : category === 'Cardio' ? () => {
-        // Could navigate to cardio progress if needed
-      } : undefined;
-
-      if (category === 'Running') {
-        items.push({
-          type: 'run' as const,
-          dateISO,
-          title,
-          subtitle,
-          right,
-          key: `strava-${activity.id}`,
-          onClick: onClickFn!,
-        });
-      } else if (category === 'Cardio') {
-        items.push({
-          type: 'cardio' as const,
-          dateISO,
-          title,
-          subtitle,
-          right,
-          key: `strava-${activity.id}`,
-          onClick: onClickFn!,
-        });
-      } else {
-        items.push({
-          type: 'import' as const,
-          dateISO,
-          title,
-          subtitle,
-          right,
-          key: `strava-${activity.id}`,
-        });
-      }
-    }
-
     items.sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
 
     const filtered = items.filter((it) => {
       if (journalTab === "All") return true;
       if (journalTab === "Lifts") return false; // Handled separately with grouped view
-      if (journalTab === "Cardio") {
-        // Include cardio items and Strava activities mapped to Cardio
-        return it.type === "cardio" || (it.key?.startsWith('strava-') && it.type === "cardio");
-      }
-      if (journalTab === "Running") {
-        // Include runs and Strava activities mapped to Running
-        return it.type === "run" || (it.key?.startsWith('strava-') && it.type === "run");
-      }
+      if (journalTab === "Cardio") return it.type === "cardio";
+      if (journalTab === "Running") return it.type === "run";
       return false;
     });
 
     return filtered;
-  }, [lifts, cardio, runs, imported, stravaActivities, journalTab]);
+  }, [lifts, cardio, runs, imported, journalTab]);
 
   const liftSeries = useMemo(() => {
     const rangeDays = progressTimeRange === "Week" ? 7 : progressTimeRange === "Month" ? 30 : 9999;
@@ -1790,9 +1789,10 @@ function App() {
     const r = Number(liftReps);
     if (!Number.isFinite(w) || w <= 0) return;
     if (!Number.isFinite(r) || r <= 0) return;
+    const dateISO = ensureDateISO(liftDate);
     const entry: LiftEntry = {
       id: `l_${crypto.randomUUID()}`,
-      dateISO: todayISO(),
+      dateISO,
       lift: selectedLift,
       weightKg: Math.round((w / 2.5)) * 2.5,
       reps: Math.floor(r),
@@ -1807,9 +1807,10 @@ function App() {
     const sec = Number(cardioSeconds);
     if (!Number.isFinite(cal) || cal <= 0) return;
     if (!Number.isFinite(sec) || sec <= 0) return;
+    const dateISO = ensureDateISO(cardioDate);
     const entry: CardioEntry = {
       id: `c_${crypto.randomUUID()}`,
-      dateISO: todayISO(),
+      dateISO,
       machine: selectedMachine,
       seconds: Math.floor(sec),
       calories: Math.floor(cal),
@@ -1838,9 +1839,10 @@ function App() {
       timeSec = Math.round(parsed * (dist / 1000));
     }
 
+    const dateISO = ensureDateISO(runDate);
     const entry: RunEntry = {
       id: `r_${crypto.randomUUID()}`,
-      dateISO: todayISO(),
+      dateISO,
       distanceMeters: Math.round(dist),
       inputType: runInputType,
       rounds: Math.floor(rounds),
@@ -1852,51 +1854,55 @@ function App() {
     setModal(null);
   }
 
-  function ConnectRow({
-    title,
-    subtitle,
-    enabled,
-    onToggle,
-  }: {
-    title: string;
-    subtitle: string;
-    enabled: boolean;
-    onToggle: () => void;
-  }) {
-    return (
-      <div className="flex items-center justify-between gap-4 transition-all duration-200" style={{ 
-        background: "var(--surface)", 
-        border: "var(--border)", 
-        borderRadius: "var(--card-radius)",
-        padding: "var(--card-pad)",
-      }}>
-        <div>
-          <div className="text-sm font-semibold" style={{ color: TEXT }}>
-            {title}
-          </div>
-          <div className="text-xs mt-0.5" style={{ color: MUTED }}>
-            {subtitle}
-          </div>
-        </div>
-        <button
-          onClick={onToggle}
-          className="w-12 h-7 rounded-full p-1 transition-all duration-200 active:scale-95"
-          style={{
-            background: enabled ? ACCENT : "rgba(255,255,255,0.1)",
-            border: enabled ? `1px solid rgba(0,0,255,0.6)` : `1px solid ${BORDER}`,
-            boxShadow: enabled ? "0 2px 6px rgba(0,0,255,0.3)" : "none",
-          }}
-        >
-          <div
-            className="w-5 h-5 rounded-full transition-all duration-200"
-            style={{
-              background: TEXT,
-              transform: enabled ? "translateX(20px)" : "translateX(0px)",
-            }}
-          />
-        </button>
-      </div>
-    );
+  function deleteLiftEntry(entryId: string) {
+    if (!confirm("Delete this lift entry?")) return;
+    setLifts((prev) => prev.filter((entry) => entry.id !== entryId));
+  }
+
+  function deleteCardioEntry(entryId: string) {
+    if (!confirm("Delete this cardio entry?")) return;
+    setCardio((prev) => prev.filter((entry) => entry.id !== entryId));
+  }
+
+  function deleteRunEntry(entryId: string) {
+    if (!confirm("Delete this run entry?")) return;
+    setRuns((prev) => prev.filter((entry) => entry.id !== entryId));
+  }
+
+  async function copyUserId() {
+    const userId = session?.user.id;
+    if (!userId) return;
+    try {
+      await navigator.clipboard.writeText(userId);
+      showToast({
+        title: "Copied",
+        body: "User ID copied to clipboard.",
+        variant: "success",
+        autoDismiss: true,
+        dismissAfter: 2500,
+      });
+    } catch {
+      alert("Copy failed. Please try again.");
+    }
+  }
+
+  function downloadUserData() {
+    const userId = session?.user.id;
+    if (!userId) return;
+    const payload = {
+      userId,
+      exportedAt: new Date().toISOString(),
+      data: buildUserData(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `progression-data-${userId.slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   // --- mock integration toggles
@@ -2659,25 +2665,6 @@ function App() {
     return <WelcomeScreen />;
   }
 
-  // Old handleSignup code removed - signup is now handled in SignupScreen component
-  // Old onboarding code removed - now using mode-based rendering
-  // All onboarding screens are now handled by mode state machine above
-
-  // Full screen loader component
-  function FullScreenLoader({ message = "Loading..." }: { message?: string }) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-t-transparent rounded-full mx-auto mb-4 animate-spin" style={{ 
-            borderColor: ACCENT,
-            borderTopColor: 'transparent',
-          }} />
-          <p className="text-sm" style={{ color: MUTED }}>{message}</p>
-        </div>
-      </div>
-    );
-  }
-
   // Show loading state while session is initializing
   if (sessionLoading) {
     return <FullScreenLoader message="Initializing..." />;
@@ -2876,6 +2863,7 @@ function App() {
                         liftType={liftType}
                         entries={entries}
                         isExpanded={expandedLiftGroups.has(liftType)}
+                        onDeleteEntry={deleteLiftEntry}
                         onToggle={() => {
                           setExpandedLiftGroups((prev) => {
                             const next = new Set(prev);
@@ -2908,6 +2896,7 @@ function App() {
                         machine={machine}
                         entries={entries}
                         isExpanded={expandedCardioGroups.has(machine)}
+                        onDeleteEntry={deleteCardioEntry}
                         onToggle={() => {
                           setExpandedCardioGroups((prev) => {
                             const next = new Set(prev);
@@ -2935,7 +2924,8 @@ function App() {
                       title={it.title}
                       subtitle={it.subtitle}
                       right={it.right}
-                      onClick={(it as any).onClick}
+                      onClick={it.onClick}
+                      onDelete={it.onDelete}
                     />
                   );
                   })
@@ -2983,7 +2973,7 @@ function App() {
                         }
                       }
                     }}
-                    options={["Deadlift", "Back Squat", "Front Squat", "Bench Press", "Incline Bench Press"]}
+                    options={LIFT_OPTIONS}
                   />
 
                   <SegmentedControl
@@ -3810,6 +3800,30 @@ function App() {
                 </div>
               </div>
 
+              <Card title="Data export">
+                <div className="text-sm" style={{ color: MUTED }}>
+                  Download your Supabase-backed data with your user ID included.
+                </div>
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="text-xs font-mono" style={{ color: TEXT }}>
+                    {session?.user.id ?? "Not signed in"}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={copyUserId}
+                      className="px-3 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                      style={{ borderRadius: "var(--chip-radius)", border: `1px solid ${BORDER}`, color: TEXT }}
+                      disabled={!session?.user.id}
+                    >
+                      Copy user ID
+                    </button>
+                    <PrimaryButton onClick={downloadUserData} disabled={!session?.user.id}>
+                      Download JSON
+                    </PrimaryButton>
+                  </div>
+                </div>
+              </Card>
+
               <Card title="Training focus">
                 <div className="text-sm" style={{ color: MUTED }}>
                   This only tags your profile for now.
@@ -4088,12 +4102,22 @@ function App() {
         open={modal?.type === "ADD"}
         title="Quick add"
         onClose={() => setModal(null)}
+        centered
+        maxWidth="sm:max-w-md"
       >
-        <div className="space-y-3">
+        <div className="flex flex-col items-center gap-4">
           <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
-            onClick={() => setModal({ type: "LIFT" })}
+            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
+            style={{ 
+              borderRadius: "var(--card-radius)", 
+              background: gradients.card, 
+              border: `1px solid ${BORDER}`, 
+              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+            }}
+            onClick={() => {
+              setLiftDate(todayISO());
+              setModal({ type: "LIFT" });
+            }}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add lift top set
@@ -4103,9 +4127,17 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
-            onClick={() => setModal({ type: "CARDIO" })}
+            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
+            style={{ 
+              borderRadius: "var(--card-radius)", 
+              background: gradients.card, 
+              border: `1px solid ${BORDER}`, 
+              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+            }}
+            onClick={() => {
+              setCardioDate(todayISO());
+              setModal({ type: "CARDIO" });
+            }}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add cardio effort
@@ -4115,9 +4147,17 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: `var(--border)` }}
-            onClick={() => setModal({ type: "RUN" })}
+            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
+            style={{ 
+              borderRadius: "var(--card-radius)", 
+              background: gradients.card, 
+              border: `1px solid ${BORDER}`, 
+              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+            }}
+            onClick={() => {
+              setRunDate(todayISO());
+              setModal({ type: "RUN" });
+            }}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add run
@@ -4136,11 +4176,12 @@ function App() {
         onClose={() => setModal(null)}
       >
         <div className="space-y-4">
+          <Input label="Date" value={liftDate} onChange={setLiftDate} type="date" />
           <Select
             label="Lift"
             value={selectedLift}
             onChange={(v) => setSelectedLift(v as LiftType)}
-            options={["Deadlift", "Back Squat", "Front Squat", "Bench Press", "Incline Bench Press"]}
+            options={LIFT_OPTIONS}
           />
           <div className="grid grid-cols-2 gap-3">
             <Input label="Weight (kg)" value={liftWeight} onChange={setLiftWeight} placeholder="e.g. 100" type="number" />
@@ -4262,6 +4303,7 @@ function App() {
         onClose={() => setModal(null)}
       >
         <div className="space-y-4">
+          <Input label="Date" value={cardioDate} onChange={setCardioDate} type="date" />
           <Select
             label="Machine"
             value={selectedMachine}
@@ -4288,6 +4330,7 @@ function App() {
         onClose={() => setModal(null)}
       >
         <div className="space-y-4">
+          <Input label="Date" value={runDate} onChange={setRunDate} type="date" />
           <div className="flex flex-wrap gap-2">
             {[200, 400, 600, 800, 1000].map((d) => (
               <button
