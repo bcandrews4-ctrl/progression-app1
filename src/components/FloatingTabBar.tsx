@@ -35,7 +35,7 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
           justifyContent: "center",
         }}
       >
-        <div className="flex items-center gap-2" style={{ width: "100%", justifyContent: "space-around" }}>
+        <div className="flex items-center" style={{ width: "100%", justifyContent: "space-between" }}>
           {tabs.map((tab) => {
             const active = tab.id === activeTab;
             return (
@@ -45,10 +45,9 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
                 className="relative flex flex-col items-center justify-center gap-1 rounded-2xl transition-all duration-200 active:scale-95"
                 style={{
                   color: active ? colors.text : colors.muted,
-                  minWidth: "64px",
+                  minWidth: 0,
                   flex: "1 1 0",
-                  padding: "8px 4px",
-                  maxWidth: "100px",
+                  padding: "6px 4px",
                 }}
               >
                 {active && (
@@ -76,7 +75,7 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
                   className="relative z-10 font-medium transition-all duration-200"
                   style={{
                     opacity: active ? 1 : 0.7,
-                    fontSize: "10px",
+                    fontSize: "9px",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",

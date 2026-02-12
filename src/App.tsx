@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal } from "lucide-react";
 
 import {
   LineChart,
@@ -1240,6 +1240,7 @@ function App() {
   const [progressTimeRange, setProgressTimeRange] = useState<"Week" | "Month" | "All-time">("All-time");
 
   const [modal, setModal] = useState<null | { type: "ADD" | "LIFT" | "CARDIO" | "RUN" }>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   
   // --- Auth & Onboarding
   const [email, setEmail] = useState("");
@@ -2428,11 +2429,17 @@ function App() {
         { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
         { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
         { id: "Health", label: "Health", icon: <Icon name="health" /> },
-        { id: "Badges", label: "Badges", icon: <Icon name="badges" /> },
-        { id: "Profile", label: "Profile", icon: <Icon name="profile" /> },
+        { id: "More", label: "More", icon: <MoreHorizontal className="w-5 h-5" /> },
       ]}
-      activeTab={tab}
-      onTabChange={(id) => setTab(id as AppTab)}
+      activeTab={showMoreMenu ? "More" : tab}
+      onTabChange={(id) => {
+        if (id === "More") {
+          setShowMoreMenu(true);
+          return;
+        }
+        setShowMoreMenu(false);
+        setTab(id as AppTab);
+      }}
     />
   );
 
@@ -3707,6 +3714,48 @@ function App() {
             </div>
             <div className="text-xs mt-1" style={{ color: MUTED }}>
               Distance + time or pace
+            </div>
+          </button>
+        </div>
+      </Modal>
+
+      {/* More menu */}
+      <Modal
+        open={showMoreMenu}
+        title="More"
+        onClose={() => setShowMoreMenu(false)}
+        centered
+        maxWidth="sm:max-w-md"
+      >
+        <div className="space-y-3">
+          <button
+            className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
+            onClick={() => {
+              setTab("Badges");
+              setShowMoreMenu(false);
+            }}
+          >
+            <div className="text-sm font-semibold" style={{ color: TEXT }}>
+              Badges
+            </div>
+            <div className="text-xs mt-1" style={{ color: MUTED }}>
+              Trophy room + milestones
+            </div>
+          </button>
+          <button
+            className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
+            onClick={() => {
+              setTab("Profile");
+              setShowMoreMenu(false);
+            }}
+          >
+            <div className="text-sm font-semibold" style={{ color: TEXT }}>
+              Profile
+            </div>
+            <div className="text-xs mt-1" style={{ color: MUTED }}>
+              Settings + integrations
             </div>
           </button>
         </div>
