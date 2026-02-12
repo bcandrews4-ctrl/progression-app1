@@ -24,12 +24,10 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
     >
       <div
         style={{
-          background: "rgba(10,10,14,0.75)",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
+          background: colors.bg,
           border: `1px solid ${colors.border}`,
-          borderRadius: radii["3xl"],
-          padding: "10px 12px",
+          borderRadius: radii["2xl"],
+          padding: "8px 10px",
           boxShadow: shadows.dock,
           height: "var(--tabbar-h, 84px)",
           display: "flex",
@@ -57,17 +55,16 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
                   <div
                     className="absolute inset-0 rounded-2xl"
                     style={{
-                      background: colors.accentSoft,
-                      border: `1px solid ${colors.accentBorder}`,
-                      boxShadow: shadows.glowInner,
+                      background: "rgba(255,255,255,0.08)",
+                      border: `1px solid ${colors.border}`,
                     }}
                   />
                 )}
                 <div
                   className="relative z-10 transition-all duration-200"
                   style={{
-                    transform: active ? "scale(1.1)" : "scale(1)",
-                    filter: active ? `drop-shadow(0 2px 4px ${colors.accentGlow})` : "none",
+                    transform: active ? "scale(1.05)" : "scale(1)",
+                    filter: "none",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

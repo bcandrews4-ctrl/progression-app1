@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart, Trash2 } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap } from "lucide-react";
 
 import {
   LineChart,
@@ -15,8 +15,20 @@ import {
   Bar,
 } from "recharts";
 
-import { colors, radii, shadows, gradients, typography } from "./styles/tokens";
+import { colors, radii, shadows, typography } from "./styles/tokens";
 import { supabase } from "./lib/supabase";
+import {
+  fetchProfile,
+  updateProfile,
+  fetchLifts,
+  insertLift,
+  fetchCardio,
+  insertCardio,
+  fetchRuns,
+  insertRun,
+  fetchImported,
+  fetchHealth,
+} from "./lib/db";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -54,7 +66,7 @@ type JournalTab = "All" | "Lifts" | "Cardio" | "Running";
 
 type DateRange = "30" | "90" | "365";
 
-type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Profile";
+type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Badges" | "Profile";
 
 type AppMode = "AUTH" | "ONBOARDING_FOCUS" | "WELCOME" | "APP";
 type OnboardingStep = "signup" | "focus" | "welcome" | "app";
@@ -231,7 +243,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "profile" }) {
+function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "badges" | "profile" }) {
   const common = "w-5 h-5";
   if (name === "overview") {
     return (
@@ -268,6 +280,9 @@ function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" |
       </svg>
     );
   }
+  if (name === "badges") {
+    return <Trophy className={common} stroke="currentColor" strokeWidth={2.2} />;
+  }
   return (
     <svg className={common} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -278,7 +293,7 @@ function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" |
   );
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function Badge({ children }: { children?: React.ReactNode }) {
   return (
     <span
       className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
@@ -303,7 +318,7 @@ function Card({
 }: {
   title: string;
   right?: React.ReactNode;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <div style={{ 
@@ -331,6 +346,67 @@ function formatDateShort(iso: string) {
 
 function ensureDateISO(value?: string) {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : todayISO();
+}
+
+function BadgeCard({
+  title,
+  description,
+  icon,
+  locked,
+  progress,
+}: {
+  key?: React.Key;
+  title: string;
+  description: string;
+  icon: string;
+  locked: boolean;
+  progress?: number;
+}) {
+  return (
+    <div
+      className="flex items-center gap-4"
+      style={{
+        background: colors.cardBg,
+        border: `1px solid ${BORDER}`,
+        borderRadius: "var(--card-radius)",
+        padding: "var(--card-pad)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+        opacity: locked ? 0.8 : 1,
+      }}
+    >
+      <div className="text-2xl">{icon}</div>
+      <div className="flex-1">
+        <div className="text-sm font-semibold" style={{ color: TEXT }}>
+          {title}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+          {description}
+        </div>
+        {locked && typeof progress === "number" && (
+          <div className="mt-2">
+            <div className="h-1.5 w-full rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <div
+                className="h-1.5 rounded-full"
+                style={{ width: `${clamp(progress, 0, 100)}%`, background: ACCENT, boxShadow: `0 0 8px ${colors.accentGlow}` }}
+              />
+            </div>
+            <div className="text-[10px] mt-1" style={{ color: MUTED }}>
+              {Math.round(progress)}% complete
+            </div>
+          </div>
+        )}
+      </div>
+      {locked ? (
+        <div className="text-[10px] px-2 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.08)", color: MUTED }}>
+          Locked
+        </div>
+      ) : (
+        <div className="text-[10px] px-2 py-1 rounded-full" style={{ background: colors.accentSoft, color: TEXT }}>
+          Earned
+        </div>
+      )}
+    </div>
+  );
 }
 
 function buildSampleData() {
@@ -560,7 +636,7 @@ function Modal({
   open: boolean;
   title: string;
   onClose: () => void;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   centered?: boolean;
   maxWidth?: string;
 }) {
@@ -793,6 +869,7 @@ function HistoryRow({
   onClick,
   onDelete,
 }: {
+  key?: React.Key;
   title: string;
   subtitle: string;
   right: string;
@@ -827,9 +904,9 @@ function HistoryRow({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <div className="text-sm font-medium" style={{ color: TEXT }}>
-            {right}
-          </div>
+        <div className="text-sm font-medium" style={{ color: TEXT }}>
+          {right}
+        </div>
           {onDelete && (
             <button
               onClick={(e) => {
@@ -842,7 +919,7 @@ function HistoryRow({
               title="Delete entry"
             >
               <Trash2 size={14} />
-            </button>
+    </button>
           )}
         </div>
       </div>
@@ -905,6 +982,7 @@ function GroupedLiftRow({
   onSelectLift,
   onDeleteEntry,
 }: {
+  key?: React.Key;
   liftType: LiftType;
   entries: LiftEntry[];
   isExpanded: boolean;
@@ -979,8 +1057,8 @@ function GroupedLiftRow({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="text-xs font-semibold" style={{ color: TEXT }}>
-                    {entry.weightKg} kg × {entry.reps}{entry.rpe ? ` · RPE ${entry.rpe}` : ""}
+                <div className="text-xs font-semibold" style={{ color: TEXT }}>
+                  {entry.weightKg} kg × {entry.reps}{entry.rpe ? ` · RPE ${entry.rpe}` : ""}
                   </div>
                   <button
                     onClick={() => onDeleteEntry(entry.id)}
@@ -1009,6 +1087,7 @@ function GroupedCardioRow({
   onSelectMachine,
   onDeleteEntry,
 }: {
+  key?: React.Key;
   machine: CardioMachine;
   entries: CardioEntry[];
   isExpanded: boolean;
@@ -1083,8 +1162,8 @@ function GroupedCardioRow({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="text-xs font-semibold" style={{ color: TEXT }}>
-                    {entry.calories} cal
+                <div className="text-xs font-semibold" style={{ color: TEXT }}>
+                  {entry.calories} cal
                   </div>
                   <button
                     onClick={() => onDeleteEntry(entry.id)}
@@ -1131,7 +1210,6 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const saveTimeoutRef = useRef<number | null>(null);
   const [tab, setTab] = useState<AppTab>("Overview");
   
   // App mode state machine
@@ -1173,25 +1251,6 @@ function App() {
     email: "",
     password: "",
     goal: "HYBRID" as TrainingFocus,
-  });
-
-  const applyUserData = (data: UserData) => {
-    setFocus(data.focus);
-    setLifts(data.lifts);
-    setCardio(data.cardio);
-    setRuns(data.runs);
-    setImported(data.imported);
-    setHealthData(data.health);
-  };
-
-  const buildUserData = (): UserData => ({
-    focus,
-    lifts,
-    cardio,
-    runs,
-    imported,
-    health: healthData,
-    onboarding_complete: onboardingComplete,
   });
 
   // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
@@ -1295,197 +1354,79 @@ function App() {
     setMode("APP");
   }, [session, sessionLoading, dataLoaded, profileLoading, profileTrainingFocus, onboardingComplete]);
 
-  // Safe profile loading - only runs with valid authenticated session
+  // Profile + data loading from relational tables
   useEffect(() => {
-    // CRITICAL: Wait for session loading to complete
-    if (sessionLoading) {
-      console.log('[ProfileLoader] Waiting for session to load...');
-      return;
-    }
+    if (sessionLoading) return;
 
-    // CRITICAL: Hard guard - no profile operations without valid session
     if (!session?.user?.id) {
-      console.log('[ProfileLoader] No session, resetting state');
       setDataLoaded(false);
-      applyUserData(emptyData);
+      setFocus(emptyData.focus);
+      setLifts(emptyData.lifts);
+      setCardio(emptyData.cardio);
+      setRuns(emptyData.runs);
+      setImported(emptyData.imported);
+      setHealthData(emptyData.health);
       setProfileTrainingFocus(null);
       return;
     }
 
     const userId = session.user.id;
-    console.log('[ProfileLoader] Starting profile load for user:', userId);
     setProfileLoading(true);
 
     let cancelled = false;
-    const loadProfile = async () => {
-      // Verify session is still valid before proceeding
-      const { data: currentSession } = await supabase.auth.getSession();
-      if (!currentSession?.session?.user?.id || currentSession.session.user.id !== userId) {
-        console.error('[ProfileLoader] Session invalid or changed, aborting');
-        if (!cancelled) {
-          setDataLoaded(false);
-          applyUserData(emptyData);
-          setProfileTrainingFocus(null);
-        }
-        return;
-      }
-
-      setDataLoaded(false);
-      
-      // First, try to fetch existing profile
-      console.log('[ProfileLoader] Fetching profile for user:', userId);
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("data")
-        .eq("id", userId)
-        .single();
-
+    const load = async () => {
+      try {
+        // 1. Profile metadata
+        const profile = await fetchProfile(userId);
       if (cancelled) return;
 
-      // Check for pending goal from signup
-      const pendingGoal = localStorage.getItem(`pending_goal_${userId}`);
-      
-      if (profileError || !profileData) {
-        // Profile doesn't exist - create it safely
-        console.log('[ProfileLoader] Profile not found, creating default profile');
-        
-        // Double-check session is still valid before creating profile
-        const { data: sessionCheck } = await supabase.auth.getSession();
-        if (!sessionCheck?.session?.user?.id || sessionCheck.session.user.id !== userId) {
-          console.error('[ProfileLoader] Session invalid before profile creation, aborting');
-          if (!cancelled) {
-            setDataLoaded(false);
-            applyUserData(emptyData);
+        if (profile) {
+          setProfileTrainingFocus(profile.training_focus);
+          setOnboardingComplete(profile.onboarding_complete);
+          if (profile.training_focus) setFocus(profile.training_focus);
+        } else {
+          // Profile row created by trigger — just set defaults
             setProfileTrainingFocus(null);
-          }
-          return;
+          setOnboardingComplete(false);
         }
 
-        const defaultData = buildEmptyData();
-        if (pendingGoal) {
-          console.log('[ProfileLoader] Applying pending goal:', pendingGoal);
-          defaultData.focus = pendingGoal as TrainingFocus;
-          localStorage.removeItem(`pending_goal_${userId}`);
-        }
-
-        // CRITICAL: New profiles should have onboarding_complete=false
-        // Store onboarding_complete in data JSON
-        const profileDataWithOnboarding = {
-          ...defaultData,
-          onboarding_complete: false,
-        };
-
-        console.log('[ProfileLoader] Upserting profile with id:', userId, 'onboarding_complete:', false);
-        const { data: createdProfile, error: upsertError } = await supabase
-          .from("profiles")
-          .upsert({ 
-            id: userId, 
-            data: profileDataWithOnboarding
-          }, {
-            onConflict: 'id'
-          })
-          .select()
-          .single();
+        // 2. Load all data tables in parallel
+        const [liftsData, cardioData, runsData, importedData, healthRows] = await Promise.all([
+          fetchLifts(userId),
+          fetchCardio(userId),
+          fetchRuns(userId),
+          fetchImported(userId),
+          fetchHealth(userId),
+        ]);
 
         if (cancelled) return;
 
-        if (upsertError) {
-          console.error('[ProfileLoader] Failed to create profile:', upsertError);
-          console.error('[ProfileLoader] Error details:', {
-            code: upsertError.code,
-            message: upsertError.message,
-            details: upsertError.details,
-            hint: upsertError.hint
-          });
-          
-          // Don't apply data if profile creation failed
-          if (!cancelled) {
-            setDataLoaded(false);
-            applyUserData(emptyData);
-            setProfileTrainingFocus(null);
-          }
-          return;
+        setLifts(liftsData as LiftEntry[]);
+        setCardio(cardioData as CardioEntry[]);
+        setRuns(runsData as RunEntry[]);
+        setImported(importedData as ImportedWorkout[]);
+        if (healthRows.length > 0) {
+          setHealthData(healthRows as HealthMetric[]);
         }
-
-        console.log('[ProfileLoader] Profile created successfully:', createdProfile);
+      } catch (err) {
+        console.error('[ProfileLoader] Error loading data:', err);
+      } finally {
         if (!cancelled) {
-          applyUserData(defaultData);
-          setProfileTrainingFocus(defaultData.focus || null);
-          // New profile: onboarding not complete
-          setOnboardingComplete(false);
-        }
-      } else {
-        console.log('[ProfileLoader] Profile found, loading data');
-        const userData = profileData.data as any; // Allow onboarding_complete in data
-        // Check training_focus from data.focus
-        const trainingFocus = userData?.focus || null;
-        // Check onboarding_complete from data (default to false if not set)
-        const onboardingComplete = userData?.onboarding_complete ?? false;
-        console.log('[ProfileLoader] onboarding_complete:', onboardingComplete);
-        
-        // If profile exists but has no focus and we have a pending goal, update it
-        if (pendingGoal && !trainingFocus) {
-          const updatedData = userData || buildEmptyData();
-          updatedData.focus = pendingGoal as TrainingFocus;
-          await supabase.from("profiles").update({ 
-            data: updatedData
-          }).eq("id", userId);
-          localStorage.removeItem(`pending_goal_${userId}`);
-          if (!cancelled) {
-            setProfileTrainingFocus(pendingGoal as TrainingFocus);
-            applyUserData(updatedData);
-          }
-        } else {
-          if (!cancelled) {
-            if (userData) {
-              // Extract onboarding_complete before applying (it's not part of UserData type)
-              const { onboarding_complete: _, ...userDataWithoutOnboarding } = userData;
-              applyUserData(userDataWithoutOnboarding as UserData);
-            }
-            setProfileTrainingFocus(trainingFocus);
-            setOnboardingComplete(onboardingComplete);
-            console.log('[ProfileLoader] Profile loaded, training focus:', trainingFocus, 'onboarding_complete:', onboardingComplete);
-          }
-        }
-      }
-      
-      if (!cancelled) {
-        console.log('[ProfileLoader] Data loading complete');
         setDataLoaded(true);
         setProfileLoading(false);
+        }
       }
     };
 
-    loadProfile();
-    return () => {
-      cancelled = true;
-    };
+    load();
+    return () => { cancelled = true; };
   }, [session?.user.id, sessionLoading]);
-
-  useEffect(() => {
-    const userId = session?.user.id;
-    if (!userId || !dataLoaded) return;
-
-    if (saveTimeoutRef.current) {
-      window.clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = window.setTimeout(async () => {
-      await supabase.from("profiles").update({ data: buildUserData() }).eq("id", userId);
-    }, 800);
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        window.clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded]);
 
   // Handle URL tab query parameter
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Profile'].includes(tabParam)) {
+    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Badges', 'Profile'].includes(tabParam)) {
       setTab(tabParam as AppTab);
     }
     if (urlParams.toString()) {
@@ -1565,10 +1506,10 @@ function App() {
   );
 
   const stats = useMemo(() => {
-    const liftsInRange = lifts.filter((x) => withinLastDays(x.dateISO, rangeDays));
-    const cardioInRange = cardio.filter((x) => withinLastDays(x.dateISO, rangeDays));
-    const runsInRange = runs.filter((x) => withinLastDays(x.dateISO, rangeDays));
-    const importedInRange = imported.filter((x) => withinLastDays(x.dateISO, rangeDays));
+    const liftsInRange: LiftEntry[] = lifts.filter((x) => withinLastDays(x.dateISO, rangeDays));
+    const cardioInRange: CardioEntry[] = cardio.filter((x) => withinLastDays(x.dateISO, rangeDays));
+    const runsInRange: RunEntry[] = runs.filter((x) => withinLastDays(x.dateISO, rangeDays));
+    const importedInRange: ImportedWorkout[] = imported.filter((x) => withinLastDays(x.dateISO, rangeDays));
 
     const workouts = liftsInRange.length + cardioInRange.length + runsInRange.length + importedInRange.length;
     const liftedTons = calcLiftedTonnage(liftsInRange);
@@ -1782,6 +1723,29 @@ function App() {
     return `Progress → Running (${selectedRunDistance}m)`;
   }, [progressFilter, selectedLift, selectedMachine, selectedRunDistance]);
 
+  const badges = useMemo(
+    () => [
+      { title: "First Workout", description: "Complete your first workout", icon: "🎯", locked: false },
+      { title: "5 Workouts", description: "Complete 5 total workouts", icon: "🔥", locked: false },
+      { title: "10,000kg Volume", description: "Reach 10,000kg total volume", icon: "💪", locked: false },
+      { title: "New 1RM PR", description: "Set a new 1RM personal record", icon: "⚡", locked: false },
+      { title: "25 Workouts", description: "Complete 25 total workouts", icon: "🏆", locked: true, progress: 68 },
+      { title: "Squat Master", description: "Squat 2x your bodyweight", icon: "🦵", locked: true, progress: 85 },
+      { title: "Bench Press King", description: "Bench press 1.5x your bodyweight", icon: "💎", locked: true, progress: 72 },
+      { title: "Deadlift Demon", description: "Deadlift 2.5x your bodyweight", icon: "👹", locked: true, progress: 60 },
+      { title: "100 Workouts", description: "Complete 100 total workouts", icon: "🌟", locked: true, progress: 25 },
+      { title: "Cardio King", description: "Complete 50 cardio sessions", icon: "❤️", locked: true, progress: 40 },
+      { title: "Consistency Champion", description: "Train 4+ times per week for a month", icon: "📅", locked: true, progress: 50 },
+      { title: "Iron Warrior", description: "Complete 365 workouts in a year", icon: "⚔️", locked: true, progress: 12 },
+    ],
+    []
+  );
+
+  const badgeSummary = useMemo(() => {
+    const earnedCount = badges.filter((b) => !b.locked).length;
+    return { earnedCount, totalCount: badges.length };
+  }, [badges]);
+
   const openAdd = () => setModal({ type: "ADD" });
 
   function addLift() {
@@ -1799,6 +1763,7 @@ function App() {
       ...(liftRPE !== null && liftRPE >= 1 && liftRPE <= 10 ? { rpe: liftRPE } : {}),
     };
     setLifts((prev) => [entry, ...prev]);
+    if (session?.user?.id) insertLift(session.user.id, entry).catch(console.error);
     setModal(null);
   }
 
@@ -1816,6 +1781,7 @@ function App() {
       calories: Math.floor(cal),
     };
     setCardio((prev) => [entry, ...prev]);
+    if (session?.user?.id) insertCardio(session.user.id, entry).catch(console.error);
     setModal(null);
   }
 
@@ -1851,6 +1817,7 @@ function App() {
     };
 
     setRuns((prev) => [entry, ...prev]);
+    if (session?.user?.id) insertRun(session.user.id, entry).catch(console.error);
     setModal(null);
   }
 
@@ -1892,7 +1859,7 @@ function App() {
     const payload = {
       userId,
       exportedAt: new Date().toISOString(),
-      data: buildUserData(),
+      data: { focus, lifts, cardio, runs, imported, health: healthData },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1969,58 +1936,20 @@ function App() {
             return;
           }
 
-          // Now try to create/update profile with established session
-          const defaultData = buildEmptyData();
-          // CRITICAL: New profiles should have onboarding_complete=false
-          // AND focus=null so user must select their training focus
-          const profileDataWithOnboarding = {
-            ...defaultData,
-            focus: null, // User must select their focus
+          // handle_new_user trigger creates the profile row.
+          // Ensure it exists and set onboarding defaults.
+          try {
+            await updateProfile(data.user.id, {
+              training_focus: null,
             onboarding_complete: false,
-          };
-          console.log('[Signup] Creating profile with onboarding_complete=false, focus=null');
-          const { data: profileData, error: profileError } = await supabase
-            .from("profiles")
-            .upsert({ 
-              id: data.user.id, 
-              data: profileDataWithOnboarding 
-            }, {
-              onConflict: 'id'
-            })
-            .select()
-            .single();
-
-          if (profileError) {
-            console.error('[Signup] Profile creation error:', profileError);
-            console.error('[Signup] Error details:', {
-              code: profileError.code,
-              message: profileError.message,
-              details: profileError.details,
-              hint: profileError.hint
             });
-            
-            // Check if profile already exists (maybe created by trigger)
-            const { data: existingProfile } = await supabase
-              .from("profiles")
-              .select("id")
-              .eq("id", data.user.id)
-              .single();
-            
-            if (existingProfile) {
-              console.log('[Signup] Profile already exists (likely created by trigger)');
-              // Profile exists, we're good to go
-            } else {
-              setAuthError(`Failed to create profile: ${profileError.message || 'Unknown error'}. Please try again.`);
-              setAuthLoading(false);
-              return;
-            }
-          } else {
-            console.log('[Signup] Profile created/updated successfully:', profileData);
+          } catch (profileError: any) {
+            console.error('[Signup] Profile update error:', profileError);
+            // Profile may not exist yet if trigger is slow — that's OK,
+            // the profile loader will handle it on next render.
           }
           
           // The auth state change will trigger mode transition
-          // Mode will automatically transition to ONBOARDING_FOCUS 
-          // when session is established and profileTrainingFocus is null
         }
       } catch (err: any) {
         setAuthError(err?.message || "An error occurred. Please try again.");
@@ -2078,7 +2007,7 @@ function App() {
   }
 
   function TrainingFocusScreen() {
-    const [selectedFocus, setSelectedFocus] = useState<TrainingFocus | null>(null);
+    const [selectedFocus, setSelectedFocus] = useState<TrainingFocus>("STRENGTH");
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -2089,88 +2018,14 @@ function App() {
       setSaveError(null);
 
       try {
-        // Update profile with training_focus in data JSON
-        console.log('[TrainingFocus] Saving focus:', selectedFocus);
-        
-        const currentData = buildUserData();
-        currentData.focus = selectedFocus;
-        
-        // First, ensure profile exists
-        const { data: existingProfile } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("id", session.user.id)
-          .single();
+        await updateProfile(session.user.id, {
+          training_focus: selectedFocus,
+          onboarding_complete: false,
+        });
 
-        if (!existingProfile) {
-          console.log('[TrainingFocus] Profile not found, creating...');
-          const { error: createError } = await supabase.from("profiles").upsert({ 
-            id: session.user.id, 
-            data: currentData
-          });
-
-          if (createError) {
-            console.error('[TrainingFocus] Profile creation error:', createError);
-            setSaveError("Failed to save training focus. Please try again.");
-            setSaving(false);
-            return;
-          }
-          console.log('[TrainingFocus] Profile created');
-        } else {
-          // Update existing profile
-          const { error } = await supabase
-            .from("profiles")
-            .update({ 
-              data: currentData
-            })
-            .eq("id", session.user.id);
-
-          if (error) {
-            console.error('[TrainingFocus] Profile update error:', error);
-            setSaveError("Failed to save training focus. Please try again.");
-            setSaving(false);
-            return;
-          }
-          console.log('[TrainingFocus] Profile updated');
-        }
-
-        // Verify the update was successful
-        const { data: verifyData } = await supabase
-          .from("profiles")
-          .select("data")
-          .eq("id", session.user.id)
-          .single();
-
-        if (!verifyData) {
-          console.error('[TrainingFocus] Verification failed - profile not found after update');
-          setSaveError("Failed to verify save. Please try again.");
-          setSaving(false);
-          return;
-        }
-
-        console.log('[TrainingFocus] Profile verified, updating local state');
-
-        // Update local state
         setFocus(selectedFocus);
         setProfileTrainingFocus(selectedFocus);
-        
-        // CRITICAL: Set onboarding_complete=false (user still needs to see welcome)
-        // Update profile with onboarding_complete=false
-        const updatedDataWithOnboarding = {
-          ...currentData,
-          onboarding_complete: false,
-        };
-        await supabase
-          .from("profiles")
-          .update({ 
-            data: updatedDataWithOnboarding
-          })
-          .eq("id", session.user.id);
-        
         setOnboardingComplete(false);
-        
-        // Move to welcome screen AFTER profile is confirmed saved
-        console.log('[TrainingFocus] Navigating to welcome screen');
         setMode("WELCOME");
       } catch (err: any) {
         setSaveError(err?.message || "An error occurred. Please try again.");
@@ -2180,51 +2035,48 @@ function App() {
     };
 
     const options = [
-      { value: "STRENGTH" as TrainingFocus, label: "Strength", desc: "Build maximum strength" },
-      { value: "HYPERTROPHY" as TrainingFocus, label: "Hypertrophy", desc: "Build muscle size" },
-      { value: "HYBRID" as TrainingFocus, label: "Hybrid", desc: "Best of both worlds" },
+      { value: "STRENGTH" as TrainingFocus, label: "Strength", desc: "Build maximal strength in compound lifts", icon: Dumbbell },
+      { value: "HYPERTROPHY" as TrainingFocus, label: "Hypertrophy", desc: "Increase muscle size and training volume", icon: TrendingUp },
+      { value: "HYBRID" as TrainingFocus, label: "Hybrid / Performance", desc: "Strength + conditioning + work capacity", icon: Zap },
     ];
 
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: BG, color: TEXT }}>
-        <div className="w-full max-w-[480px] px-6">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-semibold mb-2" style={typography.title}>What's your training focus?</h1>
-            <p className="text-sm" style={{ color: MUTED }}>This will be used to calibrate your custom plan.</p>
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BG, color: TEXT }}>
+        <div className="w-full max-w-2xl">
+          <div className="mb-12 text-center">
+            <h1 className="mb-4">How do you want to train right now?</h1>
+            <p className="text-white/60">You can change this later</p>
           </div>
 
-          <div className="space-y-4 mb-6">
+          <div className="space-y-4 mb-8">
             {options.map((option) => {
               const isSelected = selectedFocus === option.value;
+              const Icon = option.icon;
               return (
                 <button
                   key={option.value}
                   onClick={() => setSelectedFocus(option.value)}
                   className="w-full text-left transition-all duration-200 active:scale-[0.98]"
                   style={{
-                    background: isSelected ? colors.accentSoft : colors.cardBg,
-                    border: `1px solid ${isSelected ? colors.accentBorder : colors.border}`,
-                    borderRadius: radii["2xl"],
+                    background: isSelected ? colors.accent : colors.cardBg,
+                    border: `1px solid ${isSelected ? colors.accent : colors.border}`,
+                    borderRadius: radii.xl,
                     padding: "20px",
-                    boxShadow: isSelected ? shadows.glow : shadows.soft,
                   }}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="text-lg font-semibold mb-1" style={{ color: colors.text }}>
-                        {option.label}
-                      </div>
-                      <div className="text-sm" style={{ color: MUTED }}>
-                        {option.desc}
-                      </div>
+                  <div className="flex items-start gap-6">
+                    <div
+                      className="w-16 h-16 rounded-xl flex items-center justify-center"
+                      style={{
+                        background: isSelected ? colors.accent : "rgba(255,255,255,0.1)",
+                      }}
+                    >
+                      <Icon className="w-8 h-8 text-white" />
                     </div>
-                    {isSelected && (
-                      <div className="ml-4 flex-shrink-0">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: ACCENT }}>
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
+                    <div className="flex-1">
+                      <h3 className="mb-2">{option.label}</h3>
+                      <p className="text-white/60">{option.desc}</p>
                       </div>
-                    )}
                   </div>
                 </button>
               );
@@ -2241,15 +2093,9 @@ function App() {
             </div>
           )}
 
-          <div className="fixed bottom-0 left-0 right-0 p-6" style={{ background: `linear-gradient(to top, ${BG} 0%, ${BG} 70%, transparent 100%)` }}>
-            <PrimaryButton 
-              onClick={handleContinue} 
-              disabled={!selectedFocus || saving}
-              style={{ height: "56px", borderRadius: "var(--btn-radius)" }}
-            >
+          <PrimaryButton onClick={handleContinue} disabled={!selectedFocus || saving}>
               {saving ? "Saving..." : "Continue"}
             </PrimaryButton>
-          </div>
         </div>
       </div>
     );
@@ -2261,122 +2107,24 @@ function App() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-      const checkProfile = async () => {
-        // Wait for session loading to complete
-        if (sessionLoading) {
-          console.log('[Welcome] Waiting for session to load...');
-          return;
-        }
-
-        // If no session, immediately redirect to auth
+      if (sessionLoading) return;
         if (!session?.user?.id) {
-          console.log('[Welcome] No session, redirecting to auth');
           setMode("AUTH");
           setLoading(false);
           return;
         }
 
-        const userId = session.user.id;
-        setLoading(true);
-        console.log('[Welcome] Checking profile for user:', userId);
-
-        // CRITICAL: Verify session is still valid before any DB operations
-        const { data: sessionCheck } = await supabase.auth.getSession();
-        if (!sessionCheck?.session?.user?.id || sessionCheck.session.user.id !== userId) {
-          console.error('[Welcome] Session invalid or changed, redirecting to auth');
-          setMode("AUTH");
-          setLoading(false);
-          return;
-        }
-
+      const check = async () => {
         try {
-          const { data: profileData, error: profileError } = await supabase
-            .from("profiles")
-            .select("id, data")
-            .eq("id", userId)
-            .single();
-
-          if (profileError && profileError.code !== 'PGRST116') {
-            // PGRST116 is "not found" which is OK, we'll create it
-            console.error('[Welcome] Profile fetch error:', profileError);
-            setError('Failed to load profile. Please refresh.');
-            setLoading(false);
-            return;
-          }
-
-          if (!profileData) {
-            console.log('[Welcome] Profile not found, creating...');
-            
-            // CRITICAL: Double-check session is valid and userId matches before creating
-            const { data: finalSessionCheck } = await supabase.auth.getSession();
-            if (!finalSessionCheck?.session?.user?.id || finalSessionCheck.session.user.id !== userId) {
-              console.error('[Welcome] Session invalid before profile creation, aborting');
-              setError('Session expired. Please log in again.');
-              setLoading(false);
-              return;
-            }
-
-            const defaultData = buildEmptyData();
-            // New profile should have onboarding_complete=false
-            // AND focus=null so user must select their training focus
-            const profileDataWithOnboarding = {
-              ...defaultData,
-              focus: null, // User must select their focus
-              onboarding_complete: false,
-            };
-            console.log('[Welcome] Upserting profile with id:', userId);
-            const { data: createdProfile, error: upsertError } = await supabase
-              .from("profiles")
-              .upsert({ 
-                id: userId, 
-                data: profileDataWithOnboarding
-              }, {
-                onConflict: 'id'
-              })
-              .select()
-              .single();
-
-            if (upsertError) {
-              console.error('[Welcome] Profile creation error:', upsertError);
-              console.error('[Welcome] Error details:', {
-                code: upsertError.code,
-                message: upsertError.message,
-                details: upsertError.details,
-                hint: upsertError.hint
-              });
-              
-              // Check if profile was created by trigger in the meantime
-              const { data: retryCheck } = await supabase
-                .from("profiles")
-                .select("id")
-                .eq("id", session.user.id)
-                .single();
-              
-              if (retryCheck) {
-                console.log('[Welcome] Profile exists after retry (likely created by trigger)');
-                setProfileExists(true);
-              } else {
-                setError(`Failed to create profile: ${upsertError.message || 'Unknown error'}. Please refresh.`);
-                setLoading(false);
-                return;
-              }
-            } else {
-              console.log('[Welcome] Profile created successfully:', createdProfile);
-              setProfileExists(true);
-            }
-          } else {
-            console.log('[Welcome] Profile exists');
-            setProfileExists(true);
-          }
+          const profile = await fetchProfile(session.user.id);
+          setProfileExists(!!profile);
         } catch (err: any) {
-          console.error('[Welcome] Unexpected error:', err);
-          setError('An error occurred. Please refresh.');
+          setError('Failed to load profile. Please refresh.');
         } finally {
           setLoading(false);
         }
       };
-
-      checkProfile();
+      check();
     }, [session?.user.id, sessionLoading]);
 
     // Show loading state
@@ -2496,49 +2244,21 @@ function App() {
 
           <PrimaryButton 
             onClick={async () => {
-              console.log('[Welcome] Access Profile clicked');
-              
               if (!session?.user?.id) {
-                console.error('[Welcome] No session when clicking Access Profile');
                 setMode("AUTH");
                 return;
               }
 
-              // Update profile to set onboarding_complete=true
               try {
-                const currentData = buildUserData();
-                const updatedData = {
-                  ...currentData,
-                  onboarding_complete: true,
-                };
-                
-                const { error } = await supabase
-                  .from("profiles")
-                  .update({ 
-                    data: updatedData
-                  })
-                  .eq("id", session.user.id);
-
-                if (error) {
-                  console.error('[Welcome] Failed to update onboarding_complete:', error);
-                  // Still proceed to app even if update fails
-                } else {
-                  console.log('[Welcome] onboarding_complete set to true');
-                }
-
-                // Update local state
-                setOnboardingComplete(true);
-                setWelcomeSeen(true);
-                setTab("Overview");
-                setMode("APP");
-              } catch (err: any) {
+                await updateProfile(session.user.id, { onboarding_complete: true });
+              } catch (err) {
                 console.error('[Welcome] Error updating onboarding_complete:', err);
-                // Still proceed to app
+              }
+
                 setOnboardingComplete(true);
                 setWelcomeSeen(true);
                 setTab("Overview");
                 setMode("APP");
-              }
             }}
             style={{ height: "56px", borderRadius: radii.xl }}
           >
@@ -2708,6 +2428,7 @@ function App() {
         { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
         { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
         { id: "Health", label: "Health", icon: <Icon name="health" /> },
+        { id: "Badges", label: "Badges", icon: <Icon name="badges" /> },
         { id: "Profile", label: "Profile", icon: <Icon name="profile" /> },
       ]}
       activeTab={tab}
@@ -2851,7 +2572,7 @@ function App() {
               <div className="space-y-3">
                 {journalTab === "Lifts" ? (
                   // Grouped lifts view
-                  Array.from(groupedLifts.entries())
+                  (Array.from(groupedLifts.entries()) as Array<[LiftType, LiftEntry[]]>)
                     .sort((a, b) => {
                       const aLatest = [...a[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
                       const bLatest = [...b[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
@@ -2884,7 +2605,7 @@ function App() {
                     ))
                 ) : journalTab === "Cardio" ? (
                   // Grouped cardio view
-                  Array.from(groupedCardio.entries())
+                  (Array.from(groupedCardio.entries()) as Array<[CardioMachine, CardioEntry[]]>)
                     .sort((a, b) => {
                       const aLatest = [...a[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
                       const bLatest = [...b[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
@@ -3791,6 +3512,64 @@ function App() {
             </div>
           ) : null}
 
+          {tab === "Badges" ? (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xl font-semibold">Badges</div>
+                <div className="text-xs mt-1" style={{ color: MUTED }}>
+                  Trophy room + milestones
+                </div>
+              </div>
+
+              <GlassCard glow>
+                <div className="text-center py-4">
+                  <div className="text-4xl mb-3">🏆</div>
+                  <div className="text-2xl font-semibold" style={{ color: TEXT }}>
+                    {badgeSummary.earnedCount} / {badgeSummary.totalCount}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: MUTED }}>
+                    Badges earned
+                  </div>
+                </div>
+              </GlassCard>
+
+              <div className="space-y-3">
+                <div className="text-sm font-semibold" style={{ color: TEXT }}>
+                  Earned
+                </div>
+                <div className="grid gap-3">
+                  {badges.filter((b) => !b.locked).map((badge, index) => (
+                    <BadgeCard
+                      key={`${badge.title}-${index}`}
+                      title={badge.title}
+                      description={badge.description}
+                      icon={badge.icon}
+                      locked={badge.locked}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="text-sm font-semibold" style={{ color: TEXT }}>
+                  Locked
+                </div>
+                <div className="grid gap-3">
+                  {badges.filter((b) => b.locked).map((badge, index) => (
+                    <BadgeCard
+                      key={`${badge.title}-${index}`}
+                      title={badge.title}
+                      description={badge.description}
+                      icon={badge.icon}
+                      locked={badge.locked}
+                      progress={badge.progress}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {tab === "Profile" ? (
             <div className="space-y-4">
               <div>
@@ -3800,30 +3579,6 @@ function App() {
                 </div>
               </div>
 
-              <Card title="Data export">
-                <div className="text-sm" style={{ color: MUTED }}>
-                  Download your Supabase-backed data with your user ID included.
-                </div>
-                <div className="mt-3 flex flex-col gap-3">
-                  <div className="text-xs font-mono" style={{ color: TEXT }}>
-                    {session?.user.id ?? "Not signed in"}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={copyUserId}
-                      className="px-3 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                      style={{ borderRadius: "var(--chip-radius)", border: `1px solid ${BORDER}`, color: TEXT }}
-                      disabled={!session?.user.id}
-                    >
-                      Copy user ID
-                    </button>
-                    <PrimaryButton onClick={downloadUserData} disabled={!session?.user.id}>
-                      Download JSON
-                    </PrimaryButton>
-                  </div>
-                </div>
-              </Card>
-
               <Card title="Training focus">
                 <div className="text-sm" style={{ color: MUTED }}>
                   This only tags your profile for now.
@@ -3831,7 +3586,12 @@ function App() {
                 <div className="mt-4">
                   <SegmentedControl
                     value={focus}
-                    setValue={setFocus}
+                    setValue={(v: string) => {
+                      setFocus(v as TrainingFocus);
+                      if (session?.user?.id) {
+                        updateProfile(session.user.id, { training_focus: v as TrainingFocus }).catch(console.error);
+                      }
+                    }}
                     options={[
                       { label: "Strength", value: "STRENGTH" },
                       { label: "Hypertrophy", value: "HYPERTROPHY" },
@@ -3864,223 +3624,6 @@ function App() {
                 </div>
               </Card>
 
-              <GlassCard>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-base font-semibold" style={{ color: TEXT }}>
-                      Strava
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: MUTED }}>
-                      {stravaConnection 
-                        ? `Connected to Strava${stravaConnection.athlete_name ? ` • ${stravaConnection.athlete_name}` : ''}`
-                        : 'Import runs and cardio sessions'}
-                    </div>
-                  </div>
-                </div>
-
-                {stravaConnection ? (
-                  <div className="space-y-3">
-                    <div className="text-xs" style={{ color: MUTED }}>
-                      {stravaConnection.last_sync_at 
-                        ? `Last sync: ${formatDateShort(stravaConnection.last_sync_at.split('T')[0])}`
-                        : 'Never synced'}
-                    </div>
-                    <div className="flex gap-2">
-                      <PrimaryButton
-                        onClick={async () => {
-                          setStravaSyncLoading(true);
-                          try {
-                            const result = await syncStrava();
-                            // Reload connection and activities
-                            const connection = await fetchStravaConnection();
-                            setStravaConnection(connection ? {
-                              athlete_name: connection.athlete_name,
-                              last_sync_at: connection.last_sync_at,
-                            } : null);
-                            const activities = await fetchStravaActivities();
-                            setStravaActivities(activities);
-                            
-                            // Show context-aware toast
-                            if (result.importedCount > 0) {
-                              const lastSyncDate = connection?.last_sync_at 
-                                ? formatDateShort(connection.last_sync_at.split('T')[0])
-                                : null;
-                              showToast({
-                                title: 'Strava synced ✅',
-                                body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.${lastSyncDate ? ` Last sync: ${lastSyncDate}` : ''}`,
-                                variant: 'success',
-                                autoDismiss: true,
-                                dismissAfter: 4000,
-                              });
-                            } else if (result.updatedCount > 0) {
-                              showToast({
-                                title: 'Strava synced ✅',
-                                body: `Updated ${result.updatedCount} activit${result.updatedCount === 1 ? 'y' : 'ies'}.`,
-                                variant: 'success',
-                                autoDismiss: true,
-                                dismissAfter: 3000,
-                              });
-                            } else {
-                              // No new or updated activities
-                              showToast({
-                                title: "You're up to date",
-                                body: 'No new Strava activities since your last sync.',
-                                variant: 'info',
-                                autoDismiss: false,
-                                secondaryAction: {
-                                  label: 'Sync last 30 days',
-                                  onClick: async () => {
-                                    setStravaSyncLoading(true);
-                                    try {
-                                      // Call sync - API will sync from last_sync_at or default to 30 days
-                                      const result = await syncStrava();
-                                      const connection = await fetchStravaConnection();
-                                      setStravaConnection(connection ? {
-                                        athlete_name: connection.athlete_name,
-                                        last_sync_at: connection.last_sync_at,
-                                      } : null);
-                                      const activities = await fetchStravaActivities();
-                                      setStravaActivities(activities);
-                                      
-                                      if (result.importedCount > 0 || result.updatedCount > 0) {
-                                        showToast({
-                                          title: 'Strava synced ✅',
-                                          body: `Found ${result.importedCount + result.updatedCount} activit${result.importedCount + result.updatedCount === 1 ? 'y' : 'ies'}.`,
-                                          variant: 'success',
-                                          autoDismiss: true,
-                                          dismissAfter: 4000,
-                                        });
-                                      } else {
-                                        showToast({
-                                          title: 'No activities found',
-                                          body: 'No new Strava activities found.',
-                                          variant: 'info',
-                                          autoDismiss: true,
-                                          dismissAfter: 3000,
-                                        });
-                                      }
-                                    } catch (error: any) {
-                                      showToast({
-                                        title: 'Sync failed',
-                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                        variant: 'error',
-                                        autoDismiss: true,
-                                        dismissAfter: 4000,
-                                      });
-                                    } finally {
-                                      setStravaSyncLoading(false);
-                                    }
-                                  },
-                                },
-                              });
-                            }
-                          } catch (error: any) {
-                            if (error.message?.includes('Rate limit')) {
-                              showToast({
-                                title: 'Rate limit reached',
-                                body: 'Strava rate limit reached. Please try again later.',
-                                variant: 'error',
-                                autoDismiss: true,
-                                dismissAfter: 5000,
-                              });
-                            } else {
-                              showToast({
-                                title: 'Sync failed',
-                                body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                variant: 'error',
-                                action: {
-                                  label: 'Try again',
-                                  onClick: async () => {
-                                    setStravaSyncLoading(true);
-                                    try {
-                                      const result = await syncStrava();
-                                      const connection = await fetchStravaConnection();
-                                      setStravaConnection(connection ? {
-                                        athlete_name: connection.athlete_name,
-                                        last_sync_at: connection.last_sync_at,
-                                      } : null);
-                                      const activities = await fetchStravaActivities();
-                                      setStravaActivities(activities);
-                                      showToast({
-                                        title: 'Strava synced ✅',
-                                        body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.`,
-                                        variant: 'success',
-                                        autoDismiss: true,
-                                        dismissAfter: 3000,
-                                      });
-                                    } catch (retryError: any) {
-                                      showToast({
-                                        title: 'Sync failed',
-                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                        variant: 'error',
-                                        autoDismiss: true,
-                                        dismissAfter: 4000,
-                                      });
-                                    } finally {
-                                      setStravaSyncLoading(false);
-                                    }
-                                  },
-                                },
-                                autoDismiss: false,
-                              });
-                            }
-                          } finally {
-                            setStravaSyncLoading(false);
-                          }
-                        }}
-                        disabled={stravaSyncLoading}
-                      >
-                        {stravaSyncLoading ? 'Syncing...' : 'Sync now'}
-                      </PrimaryButton>
-                      <button
-                        onClick={async () => {
-                          if (!confirm('Disconnect Strava? Your imported activities will remain.')) return;
-                          try {
-                            await disconnectStrava();
-                            setStravaConnection(null);
-                            // Keep activities - don't clear them
-                          } catch (error: any) {
-                            alert(`Disconnect failed: ${error.message || 'Unknown error'}`);
-                          }
-                        }}
-                        className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          borderRadius: 'var(--chip-radius)',
-                          color: TEXT,
-                          flex: 1,
-                        }}
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <PrimaryButton
-                      onClick={async () => {
-                        setStravaLoading(true);
-                        try {
-                          await connectStrava();
-                          // Will redirect, so loading state will be lost
-                        } catch (error: any) {
-                          setStravaLoading(false);
-                          if (error.message?.includes('not configured') || error.message?.includes('env')) {
-                            alert('Strava is not configured. Please contact support.');
-                          } else {
-                            alert(`Connection failed: ${error.message || 'Unknown error'}`);
-                          }
-                        }
-                      }}
-                      disabled={stravaLoading}
-                    >
-                      {stravaLoading ? 'Connecting...' : 'Connect Strava'}
-                    </PrimaryButton>
-                  </div>
-                )}
-              </GlassCard>
-
               <Card title="Data sources">
                 <div className="flex flex-wrap gap-2">
                   <Badge>Manual journal</Badge>
@@ -4110,9 +3653,9 @@ function App() {
             className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
             style={{ 
               borderRadius: "var(--card-radius)", 
-              background: gradients.card, 
+              background: colors.cardBg, 
               border: `1px solid ${BORDER}`, 
-              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
             }}
             onClick={() => {
               setLiftDate(todayISO());
@@ -4130,9 +3673,9 @@ function App() {
             className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
             style={{ 
               borderRadius: "var(--card-radius)", 
-              background: gradients.card, 
+              background: colors.cardBg, 
               border: `1px solid ${BORDER}`, 
-              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
             }}
             onClick={() => {
               setCardioDate(todayISO());
@@ -4150,9 +3693,9 @@ function App() {
             className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
             style={{ 
               borderRadius: "var(--card-radius)", 
-              background: gradients.card, 
+              background: colors.cardBg, 
               border: `1px solid ${BORDER}`, 
-              boxShadow: `${shadows.glow}, 0 12px 28px rgba(0,0,0,0.35)`,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
             }}
             onClick={() => {
               setRunDate(todayISO());

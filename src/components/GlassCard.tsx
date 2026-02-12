@@ -2,7 +2,7 @@ import React from "react";
 import { colors, shadows } from "../styles/tokens";
 
 interface GlassCardProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
   glow?: boolean;
@@ -18,10 +18,10 @@ export function GlassCard({ children, className = "", style = {}, glow = false }
       className={className}
       style={{
         background: "var(--surface)",
-        border: "var(--border)",
+        border: glow ? "1px solid rgba(0,0,255,0.4)" : "var(--border)",
         borderRadius: "var(--card-radius)",
         padding: "var(--card-pad)",
-        boxShadow: glow ? "var(--glow), var(--shadow)" : "var(--shadow)",
+        boxShadow: "var(--shadow)",
         ...style,
       }}
     >

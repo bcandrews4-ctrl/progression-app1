@@ -2,7 +2,7 @@ import React from "react";
 import { colors, radii, shadows } from "../styles/tokens";
 
 interface IconButtonProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   onClick: () => void;
   className?: string;
   size?: "sm" | "md" | "lg";
@@ -26,18 +26,16 @@ export function IconButton({ children, onClick, className = "", size = "md" }: I
         height: sizeConfig.height,
         minWidth: sizeConfig.width,
         minHeight: sizeConfig.height,
-        background: "var(--surface)",
-        border: "var(--border)",
+        background: colors.cardBg,
+        border: `1px solid ${colors.border}`,
         borderRadius: "var(--input-radius)",
         color: colors.text,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow = "var(--glow)";
-        e.currentTarget.style.borderColor = colors.accentBorder;
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.3)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow = "none";
-        e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+        e.currentTarget.style.borderColor = colors.border;
       }}
     >
       {children}

@@ -2,7 +2,7 @@ import React from "react";
 import { colors } from "../styles/tokens";
 
 interface AppLayoutProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   header?: React.ReactNode;
   tabBar?: React.ReactNode;
 }
