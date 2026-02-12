@@ -652,25 +652,30 @@ function Modal({
     >
       <div
         className={classNames(
-          "w-full rounded-t-3xl sm:rounded-3xl p-6",
+          "w-full rounded-t-3xl sm:rounded-3xl",
           maxWidth
         )}
         style={{ background: "var(--surface)", border: "var(--border)", boxShadow: "var(--shadow)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-5">
-          <div className="text-lg font-semibold" style={{ color: TEXT }}>
-            {title}
+        <div
+          className="px-6 pt-6 pb-4 border-b"
+          style={{ borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="text-lg font-semibold" style={{ color: TEXT }}>
+              {title}
+            </div>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+              style={{ background: "var(--surface)", color: TEXT, border: "var(--border)" }}
+            >
+              Close
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-            style={{ background: "var(--surface)", color: TEXT, border: "var(--border)" }}
-          >
-            Close
-          </button>
         </div>
-        <div>{children}</div>
+        <div className="px-6 py-5">{children}</div>
       </div>
     </div>
   );
@@ -3766,6 +3771,8 @@ function App() {
         open={modal?.type === "LIFT"}
         title="Log lift top set"
         onClose={() => setModal(null)}
+        centered
+        maxWidth="sm:max-w-md"
       >
         <div className="space-y-4">
           <Input label="Date" value={liftDate} onChange={setLiftDate} type="date" />
@@ -3893,6 +3900,8 @@ function App() {
         open={modal?.type === "CARDIO"}
         title="Log cardio effort"
         onClose={() => setModal(null)}
+        centered
+        maxWidth="sm:max-w-md"
       >
         <div className="space-y-4">
           <Input label="Date" value={cardioDate} onChange={setCardioDate} type="date" />
@@ -3920,6 +3929,8 @@ function App() {
         open={modal?.type === "RUN"}
         title="Log run"
         onClose={() => setModal(null)}
+        centered
+        maxWidth="sm:max-w-md"
       >
         <div className="space-y-4">
           <Input label="Date" value={runDate} onChange={setRunDate} type="date" />
