@@ -1912,7 +1912,12 @@ function App() {
       try {
         const { data, error } = await supabase.auth.signUp({ 
           email: signupEmail, 
-          password: signupPassword 
+          password: signupPassword,
+          options: {
+            data: {
+              name: name.trim(),
+            },
+          },
         });
         
         if (error) {

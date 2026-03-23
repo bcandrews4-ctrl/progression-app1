@@ -56,41 +56,25 @@ export type HealthMetric = {
 export type AdminMemberSummary = {
   userId: string;
   name: string;
+  email: string | null;
   role: string;
   trainingFocus: TrainingFocus | null;
 };
 
-export type AdminWeeklyPoint = {
-  weekStartISO: string;
-  workouts: number;
-  avgActiveDaysPerMember: number;
+export type AdminChartPoint = {
+  dateISO: string;
+  value: number;
 };
 
-export type AdminMemberProgressPoint = {
-  userId: string;
-  name: string;
-  workouts: number;
-  strengthDeltaKg: number;
-  avgWeeklySessions: number;
-};
-
-export type AdminMemberBreakoutPoint = {
-  weekStartISO: string;
-  workouts: number;
+export type AdminMemberSeries = {
+  benchE1rmSeries: AdminChartPoint[];
+  squatE1rmSeries: AdminChartPoint[];
+  runPace1kmSeries: AdminChartPoint[];
 };
 
 export type AdminDashboardData = {
   members: AdminMemberSummary[];
-  kpis: {
-    totalActiveMembers: number;
-    workoutsLogged: number;
-    avgWeeklySessions: number;
-    avgTrendDeltaKg: number;
-  };
-  weeklyTrend: AdminWeeklyPoint[];
-  progressionDistribution: AdminMemberProgressPoint[];
-  adherenceTrend: Array<{ weekStartISO: string; value: number }>;
-  memberBreakout: Record<string, AdminMemberBreakoutPoint[]>;
+  memberSeries: Record<string, AdminMemberSeries>;
 };
 
 // ---------------------------------------------------------------------------
@@ -309,45 +293,89 @@ function toDateISO(input: string) {
   return input.slice(0, 10);
 }
 
-function toWeekStartISO(dateISO: string) {
-  const date = new Date(`${toDateISO(dateISO)}T00:00:00`);
-  const day = date.getDay();
-  const mondayDelta = (day + 6) % 7;
-  date.setDate(date.getDate() - mondayDelta);
-  return date.toISOString().slice(0, 10);
+function normalizeLiftType(value: unknown) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "bench press" || v === "bench_press") return "bench";
+  if (v === "back squat" || v === "back_squat") return "squat";
+  return "other";
+}
+
+function parseNumeric(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function e1rm(weightKg: number, reps: number) {
   return weightKg * (1 + reps / 30);
 }
 
-export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90 | 365): Promise<AdminDashboardData> {
+function normalizePaceSecPerKm(run: {
+  input_type: string;
+  distance_meters: number | null;
+  time_seconds: number | null;
+  pace_sec_per_km: number | null;
+  rounds: number | null;
+}): number | null {
+  const inputType = String(run.input_type ?? "").trim().toUpperCase();
+  const pace = parseNumeric(run.pace_sec_per_km);
+  const distanceMeters = parseNumeric(run.distance_meters);
+  const timeSeconds = parseNumeric(run.time_seconds);
+  const rounds = Math.max(1, parseNumeric(run.rounds) ?? 1);
+
+  if (inputType === "PACE" && pace != null) {
+    return pace;
+  }
+  if (inputType === "TIME" && timeSeconds != null && distanceMeters != null) {
+    const totalDistanceKm = (distanceMeters * rounds) / 1000;
+    if (totalDistanceKm <= 0) return null;
+    return timeSeconds / totalDistanceKm;
+  }
+  return null;
+}
+
+export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90 | 365 | "All-time"): Promise<AdminDashboardData> {
   const profile = await fetchProfile(userId);
   if (!profile || profile.role !== "admin") {
     throw new Error("Forbidden: admin access required");
   }
 
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - rangeDays + 1);
-  const cutoffISO = cutoff.toISOString().slice(0, 10);
+  const cutoffISO =
+    rangeDays === "All-time"
+      ? null
+      : (() => {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - rangeDays + 1);
+          return cutoff.toISOString().slice(0, 10);
+        })();
 
-  const [profilesRes, liftsRes, cardioRes, runsRes, importedRes] = await Promise.all([
-    supabase.from('profiles').select('id, training_focus, role, data').eq('onboarding_complete', true),
-    supabase.from('lifts').select('user_id, date_iso, weight_kg, reps').gte('date_iso', cutoffISO),
-    supabase.from('cardio_entries').select('user_id, date_iso').gte('date_iso', cutoffISO),
-    supabase.from('run_entries').select('user_id, date_iso').gte('date_iso', cutoffISO),
-    supabase.from('imported_workouts').select('user_id, date_iso').gte('date_iso', cutoffISO),
+  const liftsQuery = supabase
+    .from('lifts')
+    .select('user_id, date_iso, lift_type, weight_kg, reps');
+  const runsQuery = supabase
+    .from('run_entries')
+    .select('user_id, date_iso, distance_meters, input_type, time_seconds, pace_sec_per_km, rounds');
+
+  const [profilesRes, liftsRes, runsRes] = await Promise.all([
+    supabase.from('profiles').select('id, email, training_focus, role, data'),
+    cutoffISO ? liftsQuery.gte('date_iso', cutoffISO) : liftsQuery,
+    cutoffISO ? runsQuery.gte('date_iso', cutoffISO) : runsQuery,
   ]);
 
   if (profilesRes.error) throw profilesRes.error;
   if (liftsRes.error) throw liftsRes.error;
-  if (cardioRes.error) throw cardioRes.error;
   if (runsRes.error) throw runsRes.error;
-  if (importedRes.error) throw importedRes.error;
+
+  console.debug("[MasterDashboard:data] raw query counts", {
+    rangeDays,
+    profiles: (profilesRes.data ?? []).length,
+    lifts: (liftsRes.data ?? []).length,
+    runs: (runsRes.data ?? []).length,
+  });
 
   const members: AdminMemberSummary[] = (profilesRes.data ?? []).map((row) => ({
     userId: row.id as string,
-    name: ((row.data as { name?: string } | null)?.name ?? `Member ${(row.id as string).slice(0, 6)}`),
+    name: ((row.data as { name?: string } | null)?.name ?? (typeof row.email === "string" ? row.email.split("@")[0] : `Member ${(row.id as string).slice(0, 6)}`)),
+    email: (row.email as string | null) ?? null,
     role: ((row.role as string | null) ?? "member"),
     trainingFocus: (row.training_focus as TrainingFocus | null),
   }));
@@ -355,104 +383,67 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
   const memberMap = new Map(members.map((m) => [m.userId, m]));
 
   const lifts = (liftsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
-  const cardio = (cardioRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
   const runs = (runsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
-  const imported = (importedRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
 
-  const workoutRows = [
-    ...lifts.map((r) => ({ userId: r.user_id as string, dateISO: toDateISO(r.date_iso as string) })),
-    ...cardio.map((r) => ({ userId: r.user_id as string, dateISO: toDateISO(r.date_iso as string) })),
-    ...runs.map((r) => ({ userId: r.user_id as string, dateISO: toDateISO(r.date_iso as string) })),
-    ...imported.map((r) => ({ userId: r.user_id as string, dateISO: toDateISO(r.date_iso as string) })),
-  ];
-
-  const weekly = new Map<string, { workouts: number; memberDays: Map<string, Set<string>> }>();
-  for (const row of workoutRows) {
-    const weekStartISO = toWeekStartISO(row.dateISO);
-    const existing = weekly.get(weekStartISO) ?? { workouts: 0, memberDays: new Map<string, Set<string>>() };
-    existing.workouts += 1;
-    const set = existing.memberDays.get(row.userId) ?? new Set<string>();
-    set.add(row.dateISO);
-    existing.memberDays.set(row.userId, set);
-    weekly.set(weekStartISO, existing);
-  }
-
-  const weeklyTrend = Array.from(weekly.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([weekStartISO, row]) => {
-      const activeDays = Array.from(row.memberDays.values()).map((d) => d.size);
-      const avgActiveDaysPerMember = members.length > 0
-        ? activeDays.reduce((acc, n) => acc + n, 0) / members.length
-        : 0;
-      return {
-        weekStartISO,
-        workouts: row.workouts,
-        avgActiveDaysPerMember,
-      };
-    });
-
-  const liftsByUser = new Map<string, Array<{ dateISO: string; e1rm: number }>>();
+  const benchByUser = new Map<string, AdminChartPoint[]>();
+  const squatByUser = new Map<string, AdminChartPoint[]>();
   for (const row of lifts) {
     const user = row.user_id as string;
-    const list = liftsByUser.get(user) ?? [];
-    list.push({
-      dateISO: toDateISO(row.date_iso as string),
-      e1rm: e1rm(Number(row.weight_kg ?? 0), Number(row.reps ?? 0)),
-    });
-    liftsByUser.set(user, list);
-  }
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    const weightKg = parseNumeric((row as { weight_kg?: unknown }).weight_kg);
+    const reps = parseNumeric((row as { reps?: unknown }).reps);
+    if (!dateISO || weightKg == null || reps == null) continue;
+    const liftPoint = { dateISO, e1rm: e1rm(weightKg, reps) };
 
-  const workoutCountByUser = new Map<string, number>();
-  for (const row of workoutRows) {
-    workoutCountByUser.set(row.userId, (workoutCountByUser.get(row.userId) ?? 0) + 1);
-  }
-
-  const progressionDistribution: AdminMemberProgressPoint[] = members.map((member) => {
-    const rows = (liftsByUser.get(member.userId) ?? []).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
-    const strengthDeltaKg = rows.length >= 2 ? rows[rows.length - 1].e1rm - rows[0].e1rm : 0;
-    const workouts = workoutCountByUser.get(member.userId) ?? 0;
-    return {
-      userId: member.userId,
-      name: member.name,
-      workouts,
-      strengthDeltaKg,
-      avgWeeklySessions: workouts / Math.max(1, rangeDays / 7),
-    };
-  }).sort((a, b) => b.strengthDeltaKg - a.strengthDeltaKg);
-
-  const memberBreakout: Record<string, AdminMemberBreakoutPoint[]> = {};
-  for (const member of members) {
-    const byWeek = new Map<string, number>();
-    for (const row of workoutRows) {
-      if (row.userId !== member.userId) continue;
-      const weekStartISO = toWeekStartISO(row.dateISO);
-      byWeek.set(weekStartISO, (byWeek.get(weekStartISO) ?? 0) + 1);
+    const liftType = normalizeLiftType((row as { lift_type?: string }).lift_type);
+    if (liftType === "bench") {
+      const bench = benchByUser.get(user) ?? [];
+      bench.push({ dateISO: liftPoint.dateISO, value: liftPoint.e1rm });
+      benchByUser.set(user, bench);
     }
-    memberBreakout[member.userId] = Array.from(byWeek.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([weekStartISO, workouts]) => ({ weekStartISO, workouts }));
+    if (liftType === "squat") {
+      const squat = squatByUser.get(user) ?? [];
+      squat.push({ dateISO: liftPoint.dateISO, value: liftPoint.e1rm });
+      squatByUser.set(user, squat);
+    }
   }
 
-  const workoutsLogged = workoutRows.length;
-  const totalActiveMembers = members.filter((m) => (workoutCountByUser.get(m.userId) ?? 0) > 0).length;
-  const avgWeeklySessions = members.length > 0
-    ? progressionDistribution.reduce((acc, m) => acc + m.avgWeeklySessions, 0) / members.length
-    : 0;
-  const avgTrendDeltaKg = members.length > 0
-    ? progressionDistribution.reduce((acc, m) => acc + m.strengthDeltaKg, 0) / members.length
-    : 0;
+  const runPaceByUser = new Map<string, AdminChartPoint[]>();
+  for (const row of runs) {
+    const user = row.user_id as string;
+    const paceSecPerKm = normalizePaceSecPerKm({
+      input_type: String((row as { input_type?: string }).input_type ?? ""),
+      distance_meters: Number((row as { distance_meters?: number }).distance_meters ?? 0),
+      time_seconds: (row as { time_seconds?: number | null }).time_seconds ?? null,
+      pace_sec_per_km: (row as { pace_sec_per_km?: number | null }).pace_sec_per_km ?? null,
+      rounds: (row as { rounds?: number | null }).rounds ?? 1,
+    });
+    if (paceSecPerKm == null || !Number.isFinite(paceSecPerKm)) continue;
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    if (!dateISO) continue;
+    const paceSeries = runPaceByUser.get(user) ?? [];
+    paceSeries.push({ dateISO, value: paceSecPerKm });
+    runPaceByUser.set(user, paceSeries);
+  }
+
+  const memberSeries: Record<string, AdminMemberSeries> = {};
+  for (const member of members) {
+    memberSeries[member.userId] = {
+      benchE1rmSeries: [...(benchByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
+      squatE1rmSeries: [...(squatByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
+      runPace1kmSeries: [...(runPaceByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
+    };
+  }
+
+  console.debug("[MasterDashboard:data] normalized series counts", {
+    members: members.length,
+    benchUsers: benchByUser.size,
+    squatUsers: squatByUser.size,
+    runningUsers: runPaceByUser.size,
+  });
 
   return {
     members,
-    kpis: {
-      totalActiveMembers,
-      workoutsLogged,
-      avgWeeklySessions,
-      avgTrendDeltaKg,
-    },
-    weeklyTrend,
-    progressionDistribution,
-    adherenceTrend: weeklyTrend.map((w) => ({ weekStartISO: w.weekStartISO, value: w.avgActiveDaysPerMember })),
-    memberBreakout,
+    memberSeries,
   };
 }
