@@ -41,6 +41,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ToastContainer } from "./components/Toast";
 import { useToast } from "./hooks/useToast";
 import { MetricCardHeader } from "./components/MetricCardHeader";
+import { MasterDashboard } from "./components/MasterDashboard";
 
 type TrainingFocus = "STRENGTH" | "HYPERTROPHY" | "HYBRID";
 
@@ -66,7 +67,7 @@ type JournalTab = "All" | "Lifts" | "Cardio" | "Running";
 
 type DateRange = "30" | "90" | "365";
 
-type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Badges" | "Profile";
+type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Master" | "Badges" | "Profile";
 
 type AppMode = "AUTH" | "ONBOARDING_FOCUS" | "WELCOME" | "APP";
 type OnboardingStep = "signup" | "focus" | "welcome" | "app";
@@ -243,7 +244,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "badges" | "profile" }) {
+function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "master" | "badges" | "profile" }) {
   const common = "w-5 h-5";
   if (name === "overview") {
     return (
@@ -279,6 +280,9 @@ function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" |
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor" />
       </svg>
     );
+  }
+  if (name === "master") {
+    return <TrendingUp className={common} stroke="currentColor" strokeWidth={2.2} />;
   }
   if (name === "badges") {
     return <Trophy className={common} stroke="currentColor" strokeWidth={2.2} />;
@@ -1222,6 +1226,7 @@ function App() {
   const [welcomeSeen, setWelcomeSeen] = useState(false);
   const [profileTrainingFocus, setProfileTrainingFocus] = useState<TrainingFocus | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState<boolean>(false);
+  const [profileRole, setProfileRole] = useState<string>("member");
   const [profileLoading, setProfileLoading] = useState(false);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("90");
@@ -1373,6 +1378,7 @@ function App() {
       setImported(emptyData.imported);
       setHealthData(emptyData.health);
       setProfileTrainingFocus(null);
+      setProfileRole("member");
       return;
     }
 
@@ -1389,10 +1395,12 @@ function App() {
         if (profile) {
           setProfileTrainingFocus(profile.training_focus);
           setOnboardingComplete(profile.onboarding_complete);
+          setProfileRole(profile.role ?? "member");
           if (profile.training_focus) setFocus(profile.training_focus);
         } else {
           // Profile row created by trigger — just set defaults
             setProfileTrainingFocus(null);
+          setProfileRole("member");
           setOnboardingComplete(false);
         }
 
@@ -1432,13 +1440,19 @@ function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Badges', 'Profile'].includes(tabParam)) {
+    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Master', 'Badges', 'Profile'].includes(tabParam)) {
       setTab(tabParam as AppTab);
     }
     if (urlParams.toString()) {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (profileRole !== "admin" && tab === "Master") {
+      setTab("Overview");
+    }
+  }, [profileRole, tab]);
 
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
@@ -2434,6 +2448,7 @@ function App() {
         { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
         { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
         { id: "Health", label: "Health", icon: <Icon name="health" /> },
+        ...(profileRole === "admin" ? [{ id: "Master", label: "Master", icon: <Icon name="master" /> }] : []),
         { id: "More", label: "More", icon: <MoreHorizontal className="w-5 h-5" /> },
       ]}
       activeTab={showMoreMenu ? "More" : tab}
@@ -3524,6 +3539,10 @@ function App() {
             </div>
           ) : null}
 
+          {tab === "Master" ? (
+            <MasterDashboard userId={session?.user?.id ?? ""} />
+          ) : null}
+
           {tab === "Badges" ? (
             <div className="space-y-4">
               <div>
@@ -3733,6 +3752,23 @@ function App() {
         maxWidth="sm:max-w-md"
       >
         <div className="space-y-3">
+          {profileRole === "admin" ? (
+            <button
+              className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+              style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
+              onClick={() => {
+                setTab("Master");
+                setShowMoreMenu(false);
+              }}
+            >
+              <div className="text-sm font-semibold" style={{ color: TEXT }}>
+                Master Dashboard
+              </div>
+              <div className="text-xs mt-1" style={{ color: MUTED }}>
+                Members progression + leaderboard
+              </div>
+            </button>
+          ) : null}
           <button
             className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
             style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}

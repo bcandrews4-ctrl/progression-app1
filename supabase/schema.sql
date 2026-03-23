@@ -10,6 +10,7 @@ DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 CREATE TABLE public.profiles (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   data jsonb NOT NULL DEFAULT '{}',
+  role text NOT NULL DEFAULT 'member',
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
@@ -33,6 +34,26 @@ ON public.profiles
 FOR UPDATE
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
+
+-- Admin helper + policy for cross-member analytics reads
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid() AND p.role = 'admin'
+  );
+$$;
+
+CREATE POLICY "Admins can view all profiles"
+ON public.profiles
+FOR SELECT
+USING (public.is_admin());
 
 -- Step 5: Create function to automatically create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
