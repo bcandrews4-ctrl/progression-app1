@@ -7,6 +7,7 @@ import { fetchAdminDashboardData, type AdminDashboardData } from "../lib/db";
 
 type RangeOption = 30 | 90 | 365 | "All-time";
 type MasterMetric = "Running" | "Bench Press" | "Squat";
+const ALL_USERS = "ALL_USERS";
 
 type MasterDashboardProps = {
   userId: string;
@@ -26,7 +27,7 @@ function formatPace(secPerKm: number) {
 
 export function MasterDashboard({ userId }: MasterDashboardProps) {
   const [range, setRange] = useState<RangeOption>("All-time");
-  const [selectedMember, setSelectedMember] = useState<string>("");
+  const [selectedMember, setSelectedMember] = useState<string>(ALL_USERS);
   const [metric, setMetric] = useState<MasterMetric>("Running");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,35 +53,68 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
     };
   }, [userId, range]);
 
-  const membersWithEmail = useMemo(
-    () => (data?.members ?? []).filter((m) => Boolean(m.email)),
-    [data],
-  );
+  const members = data?.members ?? [];
+
+  const formatMemberLabel = (member: { userId: string; name: string; email: string | null }) => {
+    if (member.email) return member.email;
+    const displayName = member.name?.trim() || "Member";
+    return `${displayName} (${member.userId.slice(0, 6)})`;
+  };
 
   useEffect(() => {
     if (!data) return;
-    const source = membersWithEmail.length > 0 ? membersWithEmail : data.members;
+    const source = data.members;
     if (source.length === 0) return;
+    if (selectedMember === ALL_USERS) return;
     if (selectedMember && source.some((m) => m.userId === selectedMember)) return;
     setSelectedMember(source[0].userId);
-  }, [data, selectedMember, membersWithEmail]);
+  }, [data, selectedMember]);
 
   const activeMember = useMemo(
-    () => data?.members.find((m) => m.userId === selectedMember) ?? null,
+    () => (selectedMember === ALL_USERS ? null : data?.members.find((m) => m.userId === selectedMember) ?? null),
     [data, selectedMember],
   );
 
   const selectedSeries = useMemo(() => {
-    if (!data || !selectedMember) return null;
+    if (!data || !selectedMember || selectedMember === ALL_USERS) return null;
     return data.memberSeries[selectedMember] ?? null;
   }, [data, selectedMember]);
 
+  const aggregatedSeriesRaw = useMemo(() => {
+    if (!data || selectedMember !== ALL_USERS) return [];
+    const pointsByDate = new Map<string, number[]>();
+    const allSeries = Object.values(data.memberSeries);
+    for (const series of allSeries) {
+      const points =
+        metric === "Bench Press"
+          ? series.benchE1rmSeries
+          : metric === "Squat"
+            ? series.squatE1rmSeries
+            : series.runPace1kmSeries;
+      for (const point of points) {
+        const dateISO = String(point.dateISO ?? "");
+        const value = Number(point.value);
+        if (!dateISO || !Number.isFinite(value)) continue;
+        const values = pointsByDate.get(dateISO) ?? [];
+        values.push(value);
+        pointsByDate.set(dateISO, values);
+      }
+    }
+    return Array.from(pointsByDate.entries())
+      .map(([dateISO, values]) => ({
+        dateISO,
+        value: values.reduce((sum, v) => sum + v, 0) / values.length,
+      }))
+      .sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+  }, [data, selectedMember, metric]);
+
   const activeSeriesRaw = useMemo(() => {
+    if (selectedMember === ALL_USERS) return aggregatedSeriesRaw;
     if (!selectedSeries) return [];
     if (metric === "Bench Press") return selectedSeries.benchE1rmSeries;
     if (metric === "Squat") return selectedSeries.squatE1rmSeries;
     return selectedSeries.runPace1kmSeries;
-  }, [selectedSeries, metric]);
+  }, [selectedSeries, metric, selectedMember, aggregatedSeriesRaw]);
 
   const activeSeries = useMemo(
     () =>
@@ -92,13 +126,20 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
     [activeSeriesRaw],
   );
 
+  const activeMemberSummary = useMemo(
+    () => data?.members.find((m) => m.userId === selectedMember) ?? null,
+    [data, selectedMember],
+  );
+
   const yLabel = metric === "Running" ? "Pace" : "e1RM";
-  const chartTitle = metric === "Running" ? "Running (1km pace)" : `${metric} e1RM`;
+  const chartTitlePrefix = metric === "Running" ? "Running (1km pace)" : `${metric} e1RM`;
+  const chartTitle = selectedMember === ALL_USERS ? `${chartTitlePrefix} - All users` : chartTitlePrefix;
   const chartTag = metric === "Running" ? "Pace" : "e1RM";
+  const audienceCopy = selectedMember === ALL_USERS ? "all users" : "this user";
   const emptyCopy =
     metric === "Running"
-      ? `No running pace data for this user${range === "All-time" ? "." : " in the selected range."}`
-      : `No ${metric} data for this user${range === "All-time" ? "." : " in the selected range."}`;
+      ? `No running pace data for ${audienceCopy}${range === "All-time" ? "." : " in the selected range."}`
+      : `No ${metric} data for ${audienceCopy}${range === "All-time" ? "." : " in the selected range."}`;
 
   useEffect(() => {
     if (!activeMember) return;
@@ -156,7 +197,7 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>
-              Active User (email)
+              Active User
             </div>
             <select
               value={selectedMember}
@@ -164,9 +205,10 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
               className="w-full px-3 py-2 text-sm"
               style={{ background: "var(--surface)", border: "var(--border)", borderRadius: "var(--input-radius)", color: colors.text }}
             >
-              {(membersWithEmail.length > 0 ? membersWithEmail : data.members).map((m) => (
+              <option value={ALL_USERS}>All users (aggregate)</option>
+              {members.map((m) => (
                 <option key={m.userId} value={m.userId}>
-                  {m.email ?? `member-${m.userId.slice(0, 6)}`}
+                  {formatMemberLabel(m)}
                 </option>
               ))}
             </select>
@@ -210,7 +252,11 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
           />
         </div>
 
-        {activeMember ? (
+        {selectedMember === ALL_USERS ? (
+          <div className="text-xs mt-3" style={{ color: "var(--muted)" }}>
+            Aggregated across {members.length} user{members.length === 1 ? "" : "s"}
+          </div>
+        ) : activeMember ? (
           <div className="text-xs mt-3" style={{ color: "var(--muted)" }}>
             {activeMember.name} {activeMember.trainingFocus ? `• ${activeMember.trainingFocus}` : ""}
           </div>
@@ -222,7 +268,7 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
           <div>
             <div className="text-sm font-semibold">{chartTitle}</div>
             <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-              {activeMember?.email ?? "Selected user"}
+              {selectedMember === ALL_USERS ? "Aggregated trend across all members" : (activeMemberSummary ? formatMemberLabel(activeMemberSummary) : "Selected user")}
             </div>
           </div>
           <div
@@ -268,7 +314,7 @@ export function MasterDashboard({ userId }: MasterDashboardProps) {
       </GlassCard>
 
       <div className="text-xs" style={{ color: "var(--muted)" }}>
-        Tip: choose a user by email, then switch Running/Bench/Squat to compare trends quickly.
+        Tip: choose a specific user or All users, then switch Running/Bench/Squat to compare trends quickly.
       </div>
     </div>
   );

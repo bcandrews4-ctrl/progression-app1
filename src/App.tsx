@@ -1348,6 +1348,10 @@ function App() {
       return;
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H3',location:'App.tsx:modeEffect',message:'mode-effect-evaluation',data:{hasUser:!!session?.user,sessionLoading,profileLoading,dataLoaded,profileTrainingFocus,onboardingComplete},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
     // CRITICAL: Check onboarding_complete first
     // If onboarding is not complete, show onboarding steps
     if (!onboardingComplete) {
@@ -2037,22 +2041,34 @@ function App() {
     const [saveError, setSaveError] = useState<string | null>(null);
 
     const handleContinue = async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H2',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'continue-pressed',data:{selectedFocus,hasSessionUser:!!session?.user},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (!selectedFocus || !session?.user) return;
       
       setSaving(true);
       setSaveError(null);
 
       try {
+        // #region agent log
+        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-start',data:{userId:session.user.id,selectedFocus},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         await updateProfile(session.user.id, {
           training_focus: selectedFocus,
           onboarding_complete: false,
         });
 
+        // #region agent log
+        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-success',data:{userId:session.user.id,selectedFocus},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         setFocus(selectedFocus);
         setProfileTrainingFocus(selectedFocus);
         setOnboardingComplete(false);
         setMode("WELCOME");
       } catch (err: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-error',data:{message:err?.message ?? 'unknown',code:err?.code ?? null,status:err?.status ?? null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         setSaveError(err?.message || "An error occurred. Please try again.");
       } finally {
         setSaving(false);
@@ -2080,7 +2096,12 @@ function App() {
               return (
                 <button
                   key={option.value}
-                  onClick={() => setSelectedFocus(option.value)}
+                  onClick={() => {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H4',location:'App.tsx:TrainingFocusScreen.optionClick',message:'focus-option-selected',data:{selectedOption:option.value},timestamp:Date.now()})}).catch(()=>{});
+                    // #endregion
+                    setSelectedFocus(option.value);
+                  }}
                   className="w-full text-left transition-all duration-200 active:scale-[0.98]"
                   style={{
                     background: isSelected ? colors.accent : colors.cardBg,

@@ -361,9 +361,23 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
     cutoffISO ? runsQuery.gte('date_iso', cutoffISO) : runsQuery,
   ]);
 
-  if (profilesRes.error) throw profilesRes.error;
-  if (liftsRes.error) throw liftsRes.error;
-  if (runsRes.error) throw runsRes.error;
+  if (profilesRes.error || liftsRes.error || runsRes.error) {
+    console.error("[MasterDashboard:data] admin query failure", {
+      userId,
+      rangeDays,
+      cutoffISO,
+      profilesError: profilesRes.error?.message ?? null,
+      liftsError: liftsRes.error?.message ?? null,
+      runsError: runsRes.error?.message ?? null,
+    });
+
+    const firstError = profilesRes.error ?? liftsRes.error ?? runsRes.error;
+    const msg = (firstError?.message ?? "").toLowerCase();
+    if (msg.includes("forbidden") || msg.includes("permission denied") || msg.includes("row-level security")) {
+      throw new Error("Admin data query blocked by RLS. Check admin role and SELECT policies for profiles/lifts/run_entries.");
+    }
+    throw firstError ?? new Error("Failed to load admin dashboard data.");
+  }
 
   console.debug("[MasterDashboard:data] raw query counts", {
     rangeDays,
@@ -372,13 +386,19 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
     runs: (runsRes.data ?? []).length,
   });
 
-  const members: AdminMemberSummary[] = (profilesRes.data ?? []).map((row) => ({
-    userId: row.id as string,
-    name: ((row.data as { name?: string } | null)?.name ?? (typeof row.email === "string" ? row.email.split("@")[0] : `Member ${(row.id as string).slice(0, 6)}`)),
-    email: (row.email as string | null) ?? null,
-    role: ((row.role as string | null) ?? "member"),
-    trainingFocus: (row.training_focus as TrainingFocus | null),
-  }));
+  const members: AdminMemberSummary[] = (profilesRes.data ?? [])
+    .map((row) => {
+      const rowId = row.id as string | null;
+      if (!rowId) return null;
+      return {
+        userId: rowId,
+        name: ((row.data as { name?: string } | null)?.name ?? (typeof row.email === "string" ? row.email.split("@")[0] : `Member ${rowId.slice(0, 6)}`)),
+        email: (row.email as string | null) ?? null,
+        role: ((row.role as string | null) ?? "member"),
+        trainingFocus: (row.training_focus as TrainingFocus | null),
+      };
+    })
+    .filter((m): m is AdminMemberSummary => Boolean(m?.userId));
 
   const memberMap = new Map(members.map((m) => [m.userId, m]));
 
