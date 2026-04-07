@@ -72,9 +72,15 @@ export type AdminMemberSeries = {
   runPace1kmSeries: AdminChartPoint[];
 };
 
+export type AdminMemberData = {
+  lifts: LiftEntry[];
+  cardio: CardioEntry[];
+  runs: RunEntry[];
+};
+
 export type AdminDashboardData = {
   members: AdminMemberSummary[];
-  memberSeries: Record<string, AdminMemberSeries>;
+  memberData: Record<string, AdminMemberData>;
 };
 
 // ---------------------------------------------------------------------------
@@ -354,14 +360,18 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
   const runsQuery = supabase
     .from('run_entries')
     .select('user_id, date_iso, distance_meters, input_type, time_seconds, pace_sec_per_km, rounds');
+  const cardioQuery = supabase
+    .from('cardio_entries')
+    .select('user_id, id, date_iso, machine, seconds, calories');
 
-  const [profilesRes, liftsRes, runsRes] = await Promise.all([
+  const [profilesRes, liftsRes, runsRes, cardioRes] = await Promise.all([
     supabase.from('profiles').select('id, email, training_focus, role, data'),
     cutoffISO ? liftsQuery.gte('date_iso', cutoffISO) : liftsQuery,
     cutoffISO ? runsQuery.gte('date_iso', cutoffISO) : runsQuery,
+    cutoffISO ? cardioQuery.gte('date_iso', cutoffISO) : cardioQuery,
   ]);
 
-  if (profilesRes.error || liftsRes.error || runsRes.error) {
+  if (profilesRes.error || liftsRes.error || runsRes.error || cardioRes.error) {
     console.error("[MasterDashboard:data] admin query failure", {
       userId,
       rangeDays,
@@ -369,9 +379,10 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
       profilesError: profilesRes.error?.message ?? null,
       liftsError: liftsRes.error?.message ?? null,
       runsError: runsRes.error?.message ?? null,
+      cardioError: cardioRes.error?.message ?? null,
     });
 
-    const firstError = profilesRes.error ?? liftsRes.error ?? runsRes.error;
+    const firstError = profilesRes.error ?? liftsRes.error ?? runsRes.error ?? cardioRes.error;
     const msg = (firstError?.message ?? "").toLowerCase();
     if (msg.includes("forbidden") || msg.includes("permission denied") || msg.includes("row-level security")) {
       throw new Error("Admin data query blocked by RLS. Check admin role and SELECT policies for profiles/lifts/run_entries.");
@@ -384,6 +395,7 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
     profiles: (profilesRes.data ?? []).length,
     lifts: (liftsRes.data ?? []).length,
     runs: (runsRes.data ?? []).length,
+    cardio: (cardioRes.data ?? []).length,
   });
 
   const members: AdminMemberSummary[] = (profilesRes.data ?? [])
@@ -404,66 +416,78 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
 
   const lifts = (liftsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
   const runs = (runsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
-
-  const benchByUser = new Map<string, AdminChartPoint[]>();
-  const squatByUser = new Map<string, AdminChartPoint[]>();
-  for (const row of lifts) {
-    const user = row.user_id as string;
-    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
-    const weightKg = parseNumeric((row as { weight_kg?: unknown }).weight_kg);
-    const reps = parseNumeric((row as { reps?: unknown }).reps);
-    if (!dateISO || weightKg == null || reps == null) continue;
-    const liftPoint = { dateISO, e1rm: e1rm(weightKg, reps) };
-
-    const liftType = normalizeLiftType((row as { lift_type?: string }).lift_type);
-    if (liftType === "bench") {
-      const bench = benchByUser.get(user) ?? [];
-      bench.push({ dateISO: liftPoint.dateISO, value: liftPoint.e1rm });
-      benchByUser.set(user, bench);
-    }
-    if (liftType === "squat") {
-      const squat = squatByUser.get(user) ?? [];
-      squat.push({ dateISO: liftPoint.dateISO, value: liftPoint.e1rm });
-      squatByUser.set(user, squat);
-    }
-  }
-
-  const runPaceByUser = new Map<string, AdminChartPoint[]>();
-  for (const row of runs) {
-    const user = row.user_id as string;
-    const paceSecPerKm = normalizePaceSecPerKm({
-      input_type: String((row as { input_type?: string }).input_type ?? ""),
-      distance_meters: Number((row as { distance_meters?: number }).distance_meters ?? 0),
-      time_seconds: (row as { time_seconds?: number | null }).time_seconds ?? null,
-      pace_sec_per_km: (row as { pace_sec_per_km?: number | null }).pace_sec_per_km ?? null,
-      rounds: (row as { rounds?: number | null }).rounds ?? 1,
-    });
-    if (paceSecPerKm == null || !Number.isFinite(paceSecPerKm)) continue;
-    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
-    if (!dateISO) continue;
-    const paceSeries = runPaceByUser.get(user) ?? [];
-    paceSeries.push({ dateISO, value: paceSecPerKm });
-    runPaceByUser.set(user, paceSeries);
-  }
-
-  const memberSeries: Record<string, AdminMemberSeries> = {};
+  const cardio = (cardioRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
+  const memberData: Record<string, AdminMemberData> = {};
   for (const member of members) {
-    memberSeries[member.userId] = {
-      benchE1rmSeries: [...(benchByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
-      squatE1rmSeries: [...(squatByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
-      runPace1kmSeries: [...(runPaceByUser.get(member.userId) ?? [])].sort((a, b) => a.dateISO.localeCompare(b.dateISO)),
+    memberData[member.userId] = {
+      lifts: [],
+      cardio: [],
+      runs: [],
     };
   }
 
   console.debug("[MasterDashboard:data] normalized series counts", {
     members: members.length,
-    benchUsers: benchByUser.size,
-    squatUsers: squatByUser.size,
-    runningUsers: runPaceByUser.size,
+    usersWithData: Object.keys(memberData).length,
   });
+
+  for (const row of lifts) {
+    const user = row.user_id as string;
+    if (!memberData[user]) continue;
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    const weightKg = parseNumeric((row as { weight_kg?: unknown }).weight_kg);
+    const reps = parseNumeric((row as { reps?: unknown }).reps);
+    if (!dateISO || weightKg == null || reps == null) continue;
+    const rpeRaw = parseNumeric((row as { rpe?: unknown }).rpe);
+    memberData[user].lifts.push({
+      id: `admin-lift-${user}-${dateISO}-${Math.random().toString(36).slice(2, 8)}`,
+      dateISO,
+      lift: String((row as { lift_type?: string }).lift_type ?? ""),
+      weightKg,
+      reps: Math.max(1, Math.round(reps)),
+      ...(rpeRaw != null ? { rpe: rpeRaw } : {}),
+    });
+  }
+
+  for (const row of cardio) {
+    const user = row.user_id as string;
+    if (!memberData[user]) continue;
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    const seconds = parseNumeric((row as { seconds?: unknown }).seconds);
+    const calories = parseNumeric((row as { calories?: unknown }).calories);
+    if (!dateISO || seconds == null || calories == null) continue;
+    memberData[user].cardio.push({
+      id: String((row as { id?: string }).id ?? `admin-cardio-${user}-${dateISO}`),
+      dateISO,
+      machine: String((row as { machine?: string }).machine ?? ""),
+      seconds: Math.max(1, Math.round(seconds)),
+      calories: Math.max(0, Math.round(calories)),
+    });
+  }
+
+  for (const row of runs) {
+    const user = row.user_id as string;
+    if (!memberData[user]) continue;
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    const distanceMeters = parseNumeric((row as { distance_meters?: unknown }).distance_meters);
+    if (!dateISO || distanceMeters == null) continue;
+    const inputType = String((row as { input_type?: string }).input_type ?? "").toUpperCase() === "PACE" ? "PACE" : "TIME";
+    const timeSecondsRaw = parseNumeric((row as { time_seconds?: unknown }).time_seconds);
+    const paceRaw = parseNumeric((row as { pace_sec_per_km?: unknown }).pace_sec_per_km);
+    const roundsRaw = parseNumeric((row as { rounds?: unknown }).rounds);
+    memberData[user].runs.push({
+      id: `admin-run-${user}-${dateISO}-${Math.random().toString(36).slice(2, 8)}`,
+      dateISO,
+      distanceMeters: Math.max(1, Math.round(distanceMeters)),
+      inputType,
+      ...(timeSecondsRaw != null ? { timeSeconds: Math.max(1, Math.round(timeSecondsRaw)) } : {}),
+      ...(paceRaw != null ? { paceSecPerKm: paceRaw } : {}),
+      rounds: Math.max(1, Math.round(roundsRaw ?? 1)),
+    });
+  }
 
   return {
     members,
-    memberSeries,
+    memberData,
   };
 }
