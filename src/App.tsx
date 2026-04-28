@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal, Bell, Users, ChevronRight } from "lucide-react";
 
 import {
   LineChart,
@@ -15,7 +15,7 @@ import {
   Bar,
 } from "recharts";
 
-import { colors, radii, shadows, typography } from "./styles/tokens";
+import { colors, radii, shadows, gradients, typography, spacing } from "./styles/tokens";
 import { supabase } from "./lib/supabase";
 import {
   fetchProfile,
@@ -42,6 +42,22 @@ import { ToastContainer } from "./components/Toast";
 import { useToast } from "./hooks/useToast";
 import { MetricCardHeader } from "./components/MetricCardHeader";
 import { MasterDashboard } from "./components/MasterDashboard";
+import { BottomSheet } from "./components/BottomSheet";
+import { PlateCalculator } from "./components/PlateCalculator";
+import { RestTimer } from "./components/RestTimer";
+import { useTheme } from "./hooks/useTheme";
+import { DesignPreview } from "./components/DesignPreview";
+import { ReadinessCard } from "./components/ReadinessCard";
+import { DeviceSyncStrip } from "./components/DeviceSyncStrip";
+import { CommunityFeed } from "./components/CommunityFeed";
+import { StreakCard } from "./components/StreakCard";
+import { JumpBackInCard } from "./components/JumpBackInCard";
+import { GymChallengesCard } from "./components/GymChallengesCard";
+import { BadgesScreen } from "./components/BadgesScreen";
+import { WorkoutTracker } from "./components/WorkoutTracker";
+import { WorkoutSummary, WorkoutSummaryData } from "./components/WorkoutSummary";
+import { CoachPortal } from "./components/CoachPortal";
+import { ChallengesScreen } from "./components/ChallengesScreen";
 
 type TrainingFocus = "STRENGTH" | "HYPERTROPHY" | "HYBRID";
 
@@ -67,7 +83,8 @@ type JournalTab = "All" | "Lifts" | "Cardio" | "Running";
 
 type DateRange = "30" | "90" | "365";
 
-type AppTab = "Overview" | "Journal" | "Progress" | "Health" | "Master" | "Badges" | "Profile";
+type AppTab = "Train" | "Progress" | "Body" | "Badges" | "Profile";
+type SubView = "workout" | "summary" | "challenges" | "coach" | null;
 
 type AppMode = "AUTH" | "ONBOARDING_FOCUS" | "WELCOME" | "APP";
 type OnboardingStep = "signup" | "focus" | "welcome" | "app";
@@ -244,24 +261,12 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" | "master" | "badges" | "profile" }) {
+function Icon({ name }: { name: "train" | "progress" | "body" | "badges" | "profile" }) {
   const common = "w-5 h-5";
-  if (name === "overview") {
+  if (name === "train") {
     return (
       <svg className={common} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-11h7V4h-7v5Z" fill="currentColor" />
-      </svg>
-    );
-  }
-  if (name === "journal") {
-    return (
-      <svg className={common} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path
-          d="M6 3h10a2 2 0 0 1 2 2v16a1 1 0 0 1-1.447.894L13 20.118l-3.553 1.776A1 1 0 0 1 8 21V5a2 2 0 0 0-2-2Z"
-          fill="currentColor"
-          opacity="0.9"
-        />
-        <path d="M6 3a2 2 0 0 0-2 2v16h4V5a2 2 0 0 0-2-2Z" fill="currentColor" opacity="0.55" />
+        <path d="M6.5 6.5h1.5v11H6.5v-11Zm9.5 0H14.5v11H16V6.5Zm-5-2H13v15h-1.5V4.5ZM3 9h3v6H3V9Zm15 0h3v6h-3V9Z" fill="currentColor"/>
       </svg>
     );
   }
@@ -274,10 +279,17 @@ function Icon({ name }: { name: "overview" | "journal" | "progress" | "health" |
       </svg>
     );
   }
-  if (name === "health") {
+  if (name === "body") {
     return (
       <svg className={common} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor" />
+        <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402 0-3.791 3.068-5.191 5.281-5.191 1.312 0 4.151.501 5.719 4.457 1.59-3.968 4.464-4.447 5.726-4.447 2.54 0 5.274 1.621 5.274 5.181 0 4.069-5.136 8.625-11 14.402z" fill="currentColor"/>
+      </svg>
+    );
+  }
+  if (name === "badges") {
+    return (
+      <svg className={common} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L8.5 8.5 1 9.8l5.5 5.3L5.2 22 12 18.5 18.8 22l-1.3-6.9L23 9.8l-7.5-1.3L12 2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" fill="currentColor" fillOpacity="0.15"/>
       </svg>
     );
   }
@@ -326,11 +338,11 @@ function Card({
 }) {
   return (
     <div style={{ 
-      background: "var(--surface)", 
-      border: "var(--border)", 
-      borderRadius: "var(--card-radius)",
-      boxShadow: "var(--shadow)",
-      padding: "var(--card-pad)",
+      background: colors.cardBg2,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.card,
+      boxShadow: shadows.card,
+      padding: spacing.cardPad,
     }}>
       <div className="flex items-center justify-between" style={{ marginBottom: "12px" }}>
         <div style={{ fontSize: "15px", fontWeight: 600, color: TEXT }}>
@@ -655,11 +667,8 @@ function Modal({
       onClick={onClose}
     >
       <div
-        className={classNames(
-          "w-full rounded-t-3xl sm:rounded-3xl",
-          maxWidth
-        )}
-        style={{ background: "var(--surface)", border: "var(--border)", boxShadow: "var(--shadow)" }}
+        className={classNames("w-full rounded-t-3xl sm:rounded-3xl", maxWidth)}
+        style={{ background: colors.cardBg2, border: `1px solid ${colors.border}`, boxShadow: shadows.card }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
@@ -764,7 +773,7 @@ function Input({
         placeholder={placeholder}
         className="w-full px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
         style={{ 
-          background: "var(--surface)", 
+          background: colors.cardBg2, 
           border: `1px solid ${BORDER}`, 
           color: TEXT,
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
@@ -813,8 +822,8 @@ function TextField({
           background: colors.cardBg,
           border: `1px solid ${focused ? colors.accentBorder : colors.border}`,
           color: colors.text,
-          borderRadius: "var(--input-radius)",
-          padding: "var(--card-pad)",
+          borderRadius: radii.input,
+          padding: spacing.cardPad,
           boxShadow: focused ? `0 0 0 3px ${colors.accentGlow}20, 0 2px 8px rgba(0,0,0,0.3)` : "0 1px 3px rgba(0,0,0,0.2)",
         }}
       />
@@ -843,7 +852,7 @@ function Select({
         onChange={(e) => onChange(e.target.value)}
         className="w-full px-4 py-3 outline-none transition-all duration-200 focus:ring-2"
         style={{ 
-          background: "var(--surface)", 
+          background: colors.cardBg2, 
           border: `1px solid ${BORDER}`, 
           color: TEXT,
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
@@ -897,11 +906,8 @@ function HistoryRow({
           onClick();
         }
       }}
-      className={classNames(
-        "w-full text-left px-4 py-3 transition-all duration-200",
-        onClick ? "cursor-pointer hover:opacity-90 active:scale-[0.98]" : ""
-      )}
-      style={{ borderRadius: "var(--input-radius)", background: "var(--surface)", border: "var(--border)" }}
+      className={classNames("w-full text-left px-4 py-3 transition-all duration-200", onClick ? "cursor-pointer hover:opacity-90 active:scale-[0.98]" : "")}
+      style={{ borderRadius: radii.input, background: colors.cardBg2, border: `1px solid ${colors.border}` }}
     >
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -1005,9 +1011,9 @@ function GroupedLiftRow({
   
   return (
     <div className="overflow-hidden" style={{ 
-      background: "var(--surface)", 
-      border: "var(--border)", 
-      borderRadius: "var(--card-radius)",
+      background: colors.cardBg2,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.card,
     }}>
       <button
         onClick={onToggle}
@@ -1035,7 +1041,7 @@ function GroupedLiftRow({
               onSelectLift();
             }}
             className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
-            style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
+            style={{ borderRadius: radii.pill, background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
           </button>
@@ -1058,7 +1064,7 @@ function GroupedLiftRow({
               <div
                 key={entry.id}
                 className="flex items-center justify-between py-2 px-3"
-                style={{ borderRadius: "var(--input-radius)", background: "var(--surface)" }}
+                style={{ borderRadius: radii.input, background: colors.cardBg2 }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -1110,9 +1116,9 @@ function GroupedCardioRow({
   
   return (
     <div className="overflow-hidden" style={{ 
-      background: "var(--surface)", 
-      border: "var(--border)", 
-      borderRadius: "var(--card-radius)",
+      background: colors.cardBg2,
+      border: `1px solid ${colors.border}`,
+      borderRadius: radii.card,
     }}>
       <button
         onClick={onToggle}
@@ -1140,7 +1146,7 @@ function GroupedCardioRow({
               onSelectMachine();
             }}
             className="text-xs px-3 py-1.5 transition-all duration-200 hover:opacity-90"
-            style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
+            style={{ borderRadius: radii.pill, background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.3)`, color: TEXT }}
           >
             View Progress
           </button>
@@ -1163,7 +1169,7 @@ function GroupedCardioRow({
               <div
                 key={entry.id}
                 className="flex items-center justify-between py-2 px-3"
-                style={{ borderRadius: "var(--input-radius)", background: "var(--surface)" }}
+                style={{ borderRadius: radii.input, background: colors.cardBg2 }}
               >
                 <div>
                   <div className="text-xs font-medium" style={{ color: TEXT }}>
@@ -1210,8 +1216,22 @@ function FullScreenLoader({ message = "Loading..." }: { message?: string }) {
 }
 
 function App() {
+  const { c } = useTheme();
+  const BG = c.bg;
+  const TEXT = c.text;
+  const MUTED = c.muted;
+  const ACCENT = c.accent;
+  const BORDER = c.border;
+  const CARD = c.cardBg;
+  const CARD2 = c.cardBg2;
   const emptyData = useMemo(() => buildEmptyData(), []);
   const { toasts, showToast, dismissToast } = useToast();
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+  const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? "";
+  const hasSupabaseEnv = Boolean(supabaseUrl) && Boolean(supabaseAnonKey);
+  const hasPlaceholderSupabaseEnv =
+    supabaseUrl.includes("YOUR_PROJECT_REF") || supabaseAnonKey.includes("YOUR_ANON_KEY");
+  const devBypassAuth = import.meta.env.DEV && (!hasSupabaseEnv || hasPlaceholderSupabaseEnv);
 
   const [session, setSession] = useState<null | { user: { id: string } }>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -1219,7 +1239,10 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [tab, setTab] = useState<AppTab>("Overview");
+  const saveTimeoutRef = useRef<number | null>(null);
+  const [tab, setTab] = useState<AppTab>("Train");
+  const [subView, setSubView] = useState<SubView>(null);
+  const [summaryData, setSummaryData] = useState<WorkoutSummaryData | null>(null);
   
   // App mode state machine
   const [mode, setMode] = useState<AppMode>("AUTH");
@@ -1250,7 +1273,6 @@ function App() {
   const [progressTimeRange, setProgressTimeRange] = useState<"Week" | "Month" | "All-time">("All-time");
 
   const [modal, setModal] = useState<null | { type: "ADD" | "LIFT" | "CARDIO" | "RUN" }>(null);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
   
   // --- Auth & Onboarding
   const [email, setEmail] = useState("");
@@ -1263,10 +1285,35 @@ function App() {
     password: "",
     goal: "HYBRID" as TrainingFocus,
   });
+  const [showQuickStartSheet, setShowQuickStartSheet] = useState(false);
+  const [showRestSheet, setShowRestSheet] = useState(false);
+  const [showPlateSheet, setShowPlateSheet] = useState(false);
+  const [hideDeloadBanner, setHideDeloadBanner] = useState(false);
+  const [designPreviewOpen, setDesignPreviewOpen] = useState(
+    () => import.meta.env.DEV && localStorage.getItem("hh_design_preview") === "1",
+  );
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    localStorage.setItem("hh_design_preview", designPreviewOpen ? "1" : "0");
+  }, [designPreviewOpen]);
 
   // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
   useEffect(() => {
     let mounted = true;
+
+    if (devBypassAuth) {
+      console.warn("[AuthBootstrap] Dev auth bypass enabled (missing/placeholder Supabase env).");
+      setSession({ user: { id: "local-dev-user" } });
+      setSessionLoading(false);
+      setDataLoaded(true);
+      setProfileLoading(false);
+      setOnboardingComplete(true);
+      setMode("APP");
+      return () => {
+        mounted = false;
+      };
+    }
     
     const initializeAuth = async () => {
       console.log('[AuthBootstrap] Initializing auth session...');
@@ -1328,7 +1375,7 @@ function App() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [devBypassAuth]);
 
   // Determine mode based on session and profile state
   useEffect(() => {
@@ -1371,6 +1418,15 @@ function App() {
 
   // Profile + data loading from relational tables
   useEffect(() => {
+    if (devBypassAuth) {
+      applyUserData(emptyData);
+      setProfileTrainingFocus(emptyData.focus || "HYBRID");
+      setOnboardingComplete(true);
+      setDataLoaded(true);
+      setProfileLoading(false);
+      return;
+    }
+
     if (sessionLoading) return;
 
     if (!session?.user?.id) {
@@ -1436,15 +1492,17 @@ function App() {
       }
     };
 
-    load();
-    return () => { cancelled = true; };
-  }, [session?.user.id, sessionLoading]);
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id, sessionLoading, devBypassAuth, emptyData]);
 
   // Handle URL tab query parameter
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['Overview', 'Journal', 'Progress', 'Health', 'Master', 'Badges', 'Profile'].includes(tabParam)) {
+    if (tabParam && ['Train', 'Progress', 'Body', 'Badges', 'Profile'].includes(tabParam)) {
       setTab(tabParam as AppTab);
     }
     if (urlParams.toString()) {
@@ -1452,11 +1510,92 @@ function App() {
     }
   }, []);
 
+  // Auto-save profile data on changes
   useEffect(() => {
-    if (profileRole !== "admin" && tab === "Master") {
-      setTab("Overview");
+    if (devBypassAuth) return;
+
+    const userId = session?.user.id;
+    if (!userId || !dataLoaded) return;
+
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
     }
-  }, [profileRole, tab]);
+
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      await supabase.from("profiles").update({ data: buildUserData() }).eq("id", userId);
+    }, 800);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        window.clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded, devBypassAuth]);
+
+  // --- Load Strava connection and activities
+  useEffect(() => {
+    if (devBypassAuth) {
+      setStravaConnection(null);
+      setStravaActivities([]);
+      return;
+    }
+
+    if (!session?.user.id) {
+      setStravaConnection(null);
+      setStravaActivities([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadStrava = async () => {
+      try {
+        const connection = await fetchStravaConnection();
+        if (cancelled) return;
+        setStravaConnection(connection ? {
+          athlete_name: connection.athlete_name,
+          last_sync_at: connection.last_sync_at,
+        } : null);
+
+        if (connection) {
+          const activities = await fetchStravaActivities();
+          if (!cancelled) {
+            setStravaActivities(activities);
+          }
+        } else {
+          setStravaActivities([]);
+        }
+        
+        // Check for URL params (from OAuth callback)
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connected') === 'strava') {
+          // Show success (you could add a toast here)
+        }
+        
+        // Handle tab query parameter (for OAuth redirects)
+        const tabParam = urlParams.get('tab');
+        if (tabParam && ['Train', 'Progress', 'Body', 'Badges', 'Profile'].includes(tabParam)) {
+          setTab(tabParam as AppTab);
+        }
+        
+        // Clean URL after processing params
+        if (urlParams.toString()) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      } catch (error) {
+        console.error('Error loading Strava:', error);
+        if (!cancelled) {
+          setStravaConnection(null);
+          setStravaActivities([]);
+        }
+      }
+    };
+
+    loadStrava();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id, devBypassAuth]);
 
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
@@ -1552,6 +1691,18 @@ function App() {
     };
   }, [lifts, cardio, runs, imported, rangeDays]);
 
+  const readinessScore = useMemo(() => {
+    const latest = healthData[0];
+    if (!latest) return 72;
+    const sleepScore = Math.min(100, (latest.sleepHours / 8) * 100);
+    const bpmScore = Math.max(0, 100 - Math.max(0, latest.avgBPM - 55) * 2);
+    const stepsScore = Math.min(100, (latest.steps / 10000) * 100);
+    return Math.round((sleepScore * 0.4) + (bpmScore * 0.3) + (stepsScore * 0.3));
+  }, [healthData]);
+
+  const readinessColor = readinessScore >= 80 ? colors.green : readinessScore >= 60 ? colors.orange : colors.red;
+  const showDeloadBanner = !hideDeloadBanner && stats.workouts > 24;
+
   const groupedLifts = useMemo(() => {
     const groups = new Map<LiftType, LiftEntry[]>();
     for (const l of lifts) {
@@ -1628,12 +1779,13 @@ function App() {
     for (const r of runs) {
       const pace = normalizeRunPace(r);
       const distKm = r.distanceMeters / 1000;
+      const speed = pace && pace > 0 ? 3600 / pace : null;
       items.push({
         type: "run",
         dateISO: r.dateISO,
         title: "Run",
         subtitle: `${formatDateShort(r.dateISO)} • ${r.distanceMeters}m • ${r.rounds} round${r.rounds === 1 ? "" : "s"}`,
-        right: pace ? formatPace(pace) : `${distKm.toFixed(1)}km`,
+        right: speed ? `${speed.toFixed(2)} km/h` : `${distKm.toFixed(1)}km`,
         key: `run-${r.id}`,
         onClick: () => {
           setSelectedRunDistance(r.distanceMeters);
@@ -1653,6 +1805,54 @@ function App() {
         right: `${w.minutes} min`,
         key: `imp-${w.id}`,
       });
+    }
+
+    // Add Strava activities
+    for (const activity of stravaActivities) {
+      const category = mapStravaTypeToCategory(activity.type);
+      const dateISO = activity.start_date.split('T')[0];
+
+      let title = activity.name || activity.type;
+      let subtitle = `${formatDateShort(dateISO)}`;
+      let right = '';
+
+      if (category === 'Running' && activity.distance_m) {
+        const distKm = activity.distance_m / 1000;
+        const timeMin = activity.moving_time / 60;
+        const speedKmh = distKm > 0 && activity.moving_time > 0 ? (distKm * 3600) / activity.moving_time : 0;
+        subtitle += ` • ${distKm.toFixed(2)}km • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        right = `${speedKmh.toFixed(2)} km/h`;
+      } else if (category === 'Cardio') {
+        const timeMin = activity.moving_time / 60;
+        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        if (activity.calories) {
+          right = `${activity.calories} cal`;
+        } else if (activity.average_heartrate) {
+          right = `HR ${Math.round(activity.average_heartrate)}`;
+        } else {
+          right = activity.type;
+        }
+      } else {
+        const timeMin = activity.moving_time / 60;
+        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
+        right = activity.type;
+      }
+
+      const onClickFn = category === 'Running' ? () => {
+        setSelectedRunDistance(activity.distance_m ? Math.round(activity.distance_m) : 800);
+        setTab("Progress");
+        setProgressFilter("Running");
+      } : category === 'Cardio' ? () => {
+        // Could navigate to cardio progress if needed
+      } : undefined;
+
+      if (category === 'Running') {
+        items.push({ type: 'run' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}`, onClick: onClickFn! });
+      } else if (category === 'Cardio') {
+        items.push({ type: 'cardio' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}`, onClick: onClickFn! });
+      } else {
+        items.push({ type: 'import' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}` });
+      }
     }
 
     items.sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
@@ -1732,12 +1932,17 @@ function App() {
       .filter((r) => progressTimeRange === "All-time" || withinLastDays(r.dateISO, rangeDays))
       .slice()
       .sort((a, b) => isoToDate(a.dateISO).getTime() - isoToDate(b.dateISO).getTime())
-      .map((r) => ({
-        dateISO: r.dateISO,
-        value: normalizeRunPace(r) ?? 0,
-        rounds: r.rounds,
-      }))
-      .filter((x) => x.value > 0);
+      .map((r) => {
+        const paceSec = normalizeRunPace(r);
+        if (!paceSec || paceSec <= 0) return null;
+        const speedKmh = +(3600 / paceSec).toFixed(2);
+        return {
+          dateISO: r.dateISO,
+          value: speedKmh,
+          rounds: r.rounds,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null && x.value > 0);
     return rows;
   }, [runs, selectedRunDistance, progressTimeRange]);
 
@@ -1894,6 +2099,53 @@ function App() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function ConnectRow({
+    title,
+    subtitle,
+    enabled,
+    onToggle,
+  }: {
+    title: string;
+    subtitle: string;
+    enabled: boolean;
+    onToggle: () => void;
+  }) {
+    return (
+      <div className="flex items-center justify-between gap-4 transition-all duration-200" style={{ 
+        background: c.cardBg2,
+        border: `1px solid ${c.border}`,
+        borderRadius: radii.card,
+        padding: spacing.cardPad,
+      }}>
+        <div>
+          <div className="text-sm font-semibold" style={{ color: TEXT }}>
+            {title}
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+            {subtitle}
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          className="w-12 h-7 rounded-full p-1 transition-all duration-200 active:scale-95"
+          style={{
+            background: enabled ? ACCENT : "rgba(255,255,255,0.1)",
+            border: enabled ? `1px solid rgba(0,0,255,0.6)` : `1px solid ${BORDER}`,
+            boxShadow: enabled ? "0 2px 6px rgba(0,0,255,0.3)" : "none",
+          }}
+        >
+          <div
+            className="w-5 h-5 rounded-full transition-all duration-200"
+            style={{
+              background: TEXT,
+              transform: enabled ? "translateX(20px)" : "translateX(0px)",
+            }}
+          />
+        </button>
+      </div>
+    );
   }
 
   // --- mock integration toggles
@@ -2296,15 +2548,27 @@ function App() {
               }
 
               try {
-                await updateProfile(session.user.id, { onboarding_complete: true });
-              } catch (err) {
-                console.error('[Welcome] Error updating onboarding_complete:', err);
-              }
+                const currentData = buildUserData();
+                const { error } = await supabase
+                  .from("profiles")
+                  .update({ data: { ...currentData, onboarding_complete: true } })
+                  .eq("id", session.user.id);
+
+                if (error) {
+                  console.error('[Welcome] Failed to update onboarding_complete:', error);
+                }
 
                 setOnboardingComplete(true);
                 setWelcomeSeen(true);
-                setTab("Overview");
+                setTab("Train");
                 setMode("APP");
+              } catch (err: any) {
+                console.error('[Welcome] Error updating onboarding_complete:', err);
+                setOnboardingComplete(true);
+                setWelcomeSeen(true);
+                setTab("Train");
+                setMode("APP");
+              }
             }}
             style={{ height: "56px", borderRadius: radii.xl }}
           >
@@ -2448,21 +2712,79 @@ function App() {
     return <FullScreenLoader message="Loading..." />;
   }
 
+  if (designPreviewOpen) {
+    return <DesignPreview onExit={() => setDesignPreviewOpen(false)} />;
+  }
+
+  // SubView full-screen routing (hides tab bar)
+  if (subView === "workout") {
+    return (
+      <WorkoutTracker
+        accentColor={c.accent}
+        onBack={() => setSubView(null)}
+        onFinish={(data) => { setSummaryData(data); setSubView("summary"); }}
+      />
+    );
+  }
+  if (subView === "summary" && summaryData) {
+    return (
+      <WorkoutSummary
+        data={summaryData}
+        onDone={() => { setSubView(null); setSummaryData(null); setTab("Train"); }}
+      />
+    );
+  }
+  if (subView === "challenges") {
+    return <ChallengesScreen onClose={() => setSubView(null)} />;
+  }
+  if (subView === "coach") {
+    return <CoachPortal onExit={() => setSubView(null)} />;
+  }
+
   // Header component
   const header = (
     <header className="flex items-center justify-between">
-      <div>
-        <div className="flex items-center gap-2">
-          <div className="text-xl font-semibold" style={typography.title}>Hybrid House</div>
-          <Badge>{focus}</Badge>
+      <div className="flex items-center gap-3">
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            background: c.accentSoft,
+            border: `1px solid ${c.accentBorder}`,
+            display: "grid",
+            placeItems: "center",
+            fontSize: "12px",
+            fontWeight: 700,
+          }}
+        >
+          HM
         </div>
-        <div className="text-xs mt-1" style={{ color: MUTED }}>
-          {tab}
+        <div>
+          <div className="text-xl font-semibold" style={typography.title}>Hybrid House</div>
+          <div className="text-xs mt-1" style={{ color: MUTED }}>
+            Monday · {tab}
+          </div>
         </div>
       </div>
-      <IconButton onClick={() => supabase.auth.signOut()} size="sm">
-        <LogOut className="w-4 h-4" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.9 }} />
-      </IconButton>
+      <div className="flex items-center gap-2">
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: "50%",
+            background: c.cardBg2,
+            border: `1px solid ${c.border}`,
+            display: "grid",
+            placeItems: "center",
+          }}
+        >
+          <Bell size={16} color={c.muted} />
+        </div>
+        <IconButton onClick={() => supabase.auth.signOut()} size="sm">
+          <LogOut className="w-4 h-4" stroke="currentColor" strokeWidth={2} style={{ opacity: 0.9 }} />
+        </IconButton>
+      </div>
     </header>
   );
 
@@ -2470,20 +2792,14 @@ function App() {
   const tabBar = (
     <FloatingTabBar
       tabs={[
-        { id: "Overview", label: "Overview", icon: <Icon name="overview" /> },
-        { id: "Journal", label: "Journal", icon: <Icon name="journal" /> },
+        { id: "Train",    label: "Train",    icon: <Icon name="train" />    },
         { id: "Progress", label: "Progress", icon: <Icon name="progress" /> },
-        { id: "Health", label: "Health", icon: <Icon name="health" /> },
-        ...(profileRole === "admin" ? [{ id: "Master", label: "Master", icon: <Icon name="master" /> }] : []),
-        { id: "More", label: "More", icon: <MoreHorizontal className="w-5 h-5" /> },
+        { id: "Body",     label: "Body",     icon: <Icon name="body" />     },
+        { id: "Badges",   label: "Badges",   icon: <Icon name="badges" />   },
+        { id: "Profile",  label: "Profile",  icon: <Icon name="profile" />  },
       ]}
-      activeTab={showMoreMenu ? "More" : tab}
+      activeTab={tab}
       onTabChange={(id) => {
-        if (id === "More") {
-          setShowMoreMenu(true);
-          return;
-        }
-        setShowMoreMenu(false);
         setTab(id as AppTab);
       }}
     />
@@ -2494,14 +2810,15 @@ function App() {
     <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     <AppLayout header={header} tabBar={tabBar}>
       <div className="space-y-4">
-          {tab === "Overview" ? (
+          {tab === "Train" ? (
             <div className="space-y-4">
-              {/* Header with Date Range */}
-              <div className="flex items-start justify-between">
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "20px" }}>
                 <div>
-                  <div className="text-2xl font-semibold mb-1" style={typography.title}>Overview</div>
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Track workouts + journal entries
+                  <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1" }}>
+                    Train
+                  </div>
+                  <div style={{ fontSize: "12px", color: c.muted, marginTop: "4px" }}>
+                    Execution over attention.
                   </div>
                 </div>
                 <SegmentedControl
@@ -2515,64 +2832,31 @@ function App() {
                 />
               </div>
 
-              {/* Workouts Chart - Premium Glass Card */}
-              <GlassCard glow>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="text-base font-semibold" style={typography.sectionTitle}>Workouts</div>
-                  <div className="text-xs" style={{ color: MUTED }}>{`Last ${rangeDays} days`}</div>
-                </div>
-                <div className="h-48" style={{ width: "100%" }}>
-                  <ResponsiveContainer width="100%" height={192}>
-                    <AreaChart data={overviewSeries} margin={{ left: 8, right: 8, top: 12, bottom: 4 }}>
-                      <defs>
-                        <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={colors.accent} stopOpacity={0.25} />
-                          <stop offset="100%" stopColor={colors.accent} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
-                      <XAxis
-                        dataKey="dateISO"
-                        tickFormatter={(v) => formatDateShort(v)}
-                        tick={{ fill: colors.muted, fontSize: 11 }}
-                        axisLine={{ stroke: colors.border }}
-                        tickLine={false}
-                        minTickGap={20}
-                      />
-                      <YAxis
-                        tick={{ fill: colors.muted, fontSize: 11 }}
-                        axisLine={{ stroke: colors.border }}
-                        tickLine={false}
-                        width={32}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: "rgba(10,10,14,0.95)",
-                          border: `1px solid ${colors.border}`,
-                          borderRadius: "var(--input-radius)",
-                          color: colors.text,
-                          backdropFilter: "blur(12px)",
-                        }}
-                        labelStyle={{ color: colors.muted, fontSize: 11 }}
-                        formatter={(val: any) => [val, "Workouts"]}
-                        labelFormatter={(label: any) => label}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke={colors.accent}
-                        strokeWidth={2.5}
-                        fill="url(#area)"
-                        style={{ filter: `drop-shadow(0 2px 4px ${colors.accentGlow})` }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </GlassCard>
+              <ReadinessCard
+                score={readinessScore}
+                sleepHours={healthData[0]?.sleepHours ?? 0}
+                hrv={Math.max(25, Math.round(80 - (healthData[0]?.avgBPM ?? 60) / 2))}
+                restingHr={healthData[0]?.avgBPM ?? 0}
+                weeklyVolumeTons={stats.liftedTons}
+              />
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <StatTile label="Workouts" value={`${stats.workouts}`} />
+              {showDeloadBanner ? (
+                <GlassCard style={{ background: `${colors.orange}12`, border: `1px solid ${colors.orange}44` }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm">
+                      Deload suggested: volume has stayed high for multiple weeks.
+                    </div>
+                    <button style={{ fontSize: 12, color: MUTED }} onClick={() => setHideDeloadBanner(true)}>
+                      Dismiss
+                    </button>
+                  </div>
+                </GlassCard>
+              ) : null}
+
+              <StreakCard completedCount={6} todayIndex={6} streakLabel="7 day consistency" streakSub="Keep it up — best yet." />
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
+                <StatTile label="Workouts" value={`${stats.workouts}`} accent />
                 <StatTile label="Lifted" value={`${stats.liftedTons.toFixed(1)} t`} />
                 <StatTile label="Reps" value={`${stats.reps}`} />
                 <StatTile label="Heaviest" value={`${stats.heaviest || 0} kg`} />
@@ -2580,146 +2864,29 @@ function App() {
                 <StatTile label="Active cals" value={`${stats.activeCals}`} />
               </div>
 
-              {/* Quick Add Card */}
-              <GlassCard>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-base font-semibold" style={typography.sectionTitle}>Quick add</div>
-                  <IconButton onClick={openAdd} size="sm">
-                    <Plus className="w-4 h-4" stroke="currentColor" strokeWidth={2.5} style={{ opacity: 0.9 }} />
-                  </IconButton>
-                </div>
-                <div className="text-sm" style={{ color: MUTED }}>
-                  Log a lift top set, a 60s max calories effort, or a run distance.
-                </div>
-              </GlassCard>
+              <JumpBackInCard title="Bench Press" meta="Last session: 92.5 kg × 4" onResume={() => setSubView("workout")} />
+
+              <GymChallengesCard
+                rankText="You're #4 in Volume King"
+                detailText="2 workouts behind #3 this week"
+                onClick={() => setSubView("challenges")}
+              />
+
+              <DeviceSyncStrip stravaConnected={Boolean(stravaConnection)} />
+              <CommunityFeed />
             </div>
           ) : null}
 
-          {tab === "Journal" ? (
-            <div className="space-y-4">
-              {/* Premium Header */}
-              <div className="flex items-end justify-between">
-                <div>
-                  <div className="text-2xl font-semibold mb-1" style={typography.title}>Journal</div>
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Manual entries + imported workouts
-                  </div>
-                </div>
-                <IconButton onClick={openAdd} size="md" className="!rounded-full">
-                  <Plus className="w-5 h-5" stroke="currentColor" strokeWidth={2.5} style={{ opacity: 0.9 }} />
-                </IconButton>
-              </div>
-
-              {/* SegmentedControl Control */}
-              <SegmentedControl
-                value={journalTab}
-                setValue={setJournalTab}
-                options={[
-                  { label: "All", value: "All" },
-                  { label: "Lifts", value: "Lifts" },
-                  { label: "Cardio", value: "Cardio" },
-                  { label: "Running", value: "Running" },
-                ]}
-              />
-
-              <div className="space-y-3">
-                {journalTab === "Lifts" ? (
-                  // Grouped lifts view
-                  (Array.from(groupedLifts.entries()) as Array<[LiftType, LiftEntry[]]>)
-                    .sort((a, b) => {
-                      const aLatest = [...a[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
-                      const bLatest = [...b[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
-                      return isoToDate(bLatest.dateISO).getTime() - isoToDate(aLatest.dateISO).getTime();
-                    })
-                    .map(([liftType, entries]) => (
-                      <GroupedLiftRow
-                        key={liftType}
-                        liftType={liftType}
-                        entries={entries}
-                        isExpanded={expandedLiftGroups.has(liftType)}
-                        onDeleteEntry={deleteLiftEntry}
-                        onToggle={() => {
-                          setExpandedLiftGroups((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(liftType)) {
-                              next.delete(liftType);
-                            } else {
-                              next.add(liftType);
-                            }
-                            return next;
-                          });
-                        }}
-                        onSelectLift={() => {
-                          setSelectedLift(liftType);
-                          setTab("Progress");
-                          setProgressFilter("Lifts");
-                        }}
-                      />
-                    ))
-                ) : journalTab === "Cardio" ? (
-                  // Grouped cardio view
-                  (Array.from(groupedCardio.entries()) as Array<[CardioMachine, CardioEntry[]]>)
-                    .sort((a, b) => {
-                      const aLatest = [...a[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
-                      const bLatest = [...b[1]].sort((x, y) => isoToDate(y.dateISO).getTime() - isoToDate(x.dateISO).getTime())[0];
-                      return isoToDate(bLatest.dateISO).getTime() - isoToDate(aLatest.dateISO).getTime();
-                    })
-                    .map(([machine, entries]) => (
-                      <GroupedCardioRow
-                        key={machine}
-                        machine={machine}
-                        entries={entries}
-                        isExpanded={expandedCardioGroups.has(machine)}
-                        onDeleteEntry={deleteCardioEntry}
-                        onToggle={() => {
-                          setExpandedCardioGroups((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(machine)) {
-                              next.delete(machine);
-                            } else {
-                              next.add(machine);
-                            }
-                            return next;
-                          });
-                        }}
-                        onSelectMachine={() => {
-                          setSelectedMachine(machine);
-                          setTab("Progress");
-                          setProgressFilter("Cardio");
-                        }}
-                      />
-                    ))
-                ) : (
-                  // Regular items view (All, Running)
-                  journalItems.slice(0, 18).map((it) => {
-                  return (
-                    <HistoryRow
-                      key={it.key}
-                      title={it.title}
-                      subtitle={it.subtitle}
-                      right={it.right}
-                      onClick={it.onClick}
-                      onDelete={it.onDelete}
-                    />
-                  );
-                  })
-                )}
-              </div>
-
-              <div className="text-xs pt-2" style={{ color: MUTED }}>
-                Tip: Tap a lift/cardio/run row to open its progress chart.
-              </div>
-            </div>
+          {tab === "Badges" ? (
+            <BadgesScreen accentColor={c.accent} />
           ) : null}
 
           {tab === "Progress" ? (
             <div className="space-y-4">
-              <div>
-                <div className="text-xl font-semibold">Progress</div>
-                <div className="text-xs mt-1" style={{ color: MUTED }}>
-                  {progressBreadcrumb}
-                </div>
+              <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1", marginBottom: "20px" }}>
+                Progress
               </div>
+              <div style={{ fontSize: "12px", color: c.muted, marginTop: "-12px" }}>{progressBreadcrumb}</div>
 
               <SegmentedControl
                 value={progressFilter}
@@ -2733,28 +2900,52 @@ function App() {
 
               {progressFilter === "Lifts" ? (
                 <>
-                  <Select
-                    label="Lift"
-                    value={selectedLift}
-                    onChange={(v) => {
-                      setSelectedLift(v as LiftType);
-                      // Reset metric if switching to a lift without enough RPE data
-                      if (liftMetric === "RPE") {
-                        const newLift = v as LiftType;
-                        const rpeCount = lifts.filter((l) => l.lift === newLift && l.rpe !== undefined).length;
-                        if (rpeCount < 3) {
-                          setLiftMetric("e1RM");
-                        }
-                      }
-                    }}
-                    options={LIFT_OPTIONS}
-                  />
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "14px" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <select
+                        value={selectedLift}
+                        onChange={e => {
+                          const newLift = e.target.value as LiftType;
+                          setSelectedLift(newLift);
+                          if (liftMetric === "RPE") {
+                            const rpeCount = lifts.filter((l) => l.lift === newLift && l.rpe !== undefined).length;
+                            if (rpeCount < 3) setLiftMetric("e1RM");
+                          }
+                        }}
+                        style={{
+                          width: "100%", appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`,
+                          borderRadius: "12px", padding: "11px 36px 11px 14px",
+                          fontSize: "14px", fontWeight: 600, color: c.text,
+                          cursor: "pointer", outline: "none", fontFamily: "inherit",
+                        }}
+                      >
+                        {LIFT_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        value={progressTimeRange}
+                        onChange={e => setProgressTimeRange(e.target.value as "Week" | "Month" | "All-time")}
+                        style={{
+                          appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`,
+                          borderRadius: "12px", padding: "11px 28px 11px 12px",
+                          fontSize: "13px", fontWeight: 500, color: c.muted,
+                          cursor: "pointer", outline: "none", fontFamily: "inherit",
+                        }}
+                      >
+                        {["Week", "Month", "All-time"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                  </div>
 
                   <SegmentedControl
                     value={liftMetric}
                     setValue={(v) => {
                       const newMetric = v as "e1RM" | "Weight" | "Reps" | "RPE";
-                      // If switching to RPE but not enough data, default to e1RM
                       if (newMetric === "RPE" && !hasEnoughRPE) {
                         setLiftMetric("e1RM");
                       } else {
@@ -2766,16 +2957,6 @@ function App() {
                       { label: "Weight", value: "Weight" },
                       { label: "Reps", value: "Reps" },
                       ...(hasEnoughRPE ? [{ label: "RPE", value: "RPE" }] : []),
-                    ]}
-                  />
-
-                  <SegmentedControl
-                    value={progressTimeRange}
-                    setValue={(v) => setProgressTimeRange(v as "Week" | "Month" | "All-time")}
-                    options={[
-                      { label: "Week", value: "Week" },
-                      { label: "Month", value: "Month" },
-                      { label: "All-time", value: "All-time" },
                     ]}
                   />
 
@@ -2805,7 +2986,7 @@ function App() {
                               width={28}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any, _name: any, ctx: any) => [
                                 `RPE ${val}`,
@@ -2879,7 +3060,7 @@ function App() {
                       <button
                         onClick={() => setModal({ type: "LIFT" })}
                         className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        style={{ borderRadius: radii.pill, background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -2909,22 +3090,37 @@ function App() {
 
               {progressFilter === "Cardio" ? (
                 <>
-                  <Select
-                    label="Machine"
-                    value={selectedMachine}
-                    onChange={(v) => setSelectedMachine(v as CardioMachine)}
-                    options={["RowErg", "BikeErg", "SkiErg", "Assault Bike"]}
-                  />
-
-                  <SegmentedControl
-                    value={progressTimeRange}
-                    setValue={(v) => setProgressTimeRange(v as "Week" | "Month" | "All-time")}
-                    options={[
-                      { label: "Week", value: "Week" },
-                      { label: "Month", value: "Month" },
-                      { label: "All-time", value: "All-time" },
-                    ]}
-                  />
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "14px" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <select
+                        value={selectedMachine}
+                        onChange={e => setSelectedMachine(e.target.value as CardioMachine)}
+                        style={{
+                          width: "100%", appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`, borderRadius: "12px",
+                          padding: "11px 36px 11px 14px", fontSize: "14px", fontWeight: 600, color: c.text,
+                        }}
+                      >
+                        {["RowErg", "BikeErg", "SkiErg", "Assault Bike"].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        value={progressTimeRange}
+                        onChange={e => setProgressTimeRange(e.target.value as "Week" | "Month" | "All-time")}
+                        style={{
+                          appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`,
+                          borderRadius: "12px", padding: "11px 28px 11px 12px",
+                          fontSize: "13px", fontWeight: 500, color: c.muted,
+                        }}
+                      >
+                        {["Week", "Month", "All-time"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                  </div>
 
                   <GlassCard glow>
                     <div className="flex items-center justify-between mb-4">
@@ -2981,7 +3177,7 @@ function App() {
                       <button
                         onClick={() => setModal({ type: "CARDIO" })}
                         className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        style={{ borderRadius: radii.pill, background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -3011,22 +3207,37 @@ function App() {
 
               {progressFilter === "Running" ? (
                 <>
-                  <Select
-                    label="Distance preset"
-                    value={String(selectedRunDistance)}
-                    onChange={(v) => setSelectedRunDistance(Number(v))}
-                    options={["200", "400", "600", "800", "1000"]}
-                  />
-
-                  <SegmentedControl
-                    value={progressTimeRange}
-                    setValue={(v) => setProgressTimeRange(v as "Week" | "Month" | "All-time")}
-                    options={[
-                      { label: "Week", value: "Week" },
-                      { label: "Month", value: "Month" },
-                      { label: "All-time", value: "All-time" },
-                    ]}
-                  />
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "14px" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <select
+                        value={String(selectedRunDistance)}
+                        onChange={e => setSelectedRunDistance(Number(e.target.value))}
+                        style={{
+                          width: "100%", appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`, borderRadius: "12px",
+                          padding: "11px 36px 11px 14px", fontSize: "14px", fontWeight: 600, color: c.text,
+                        }}
+                      >
+                        {["200", "400", "600", "800", "1000"].map(d => <option key={d} value={d}>{d}m</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <select
+                        value={progressTimeRange}
+                        onChange={e => setProgressTimeRange(e.target.value as "Week" | "Month" | "All-time")}
+                        style={{
+                          appearance: "none", WebkitAppearance: "none",
+                          background: c.cardBg2, border: `1px solid ${c.borderMid}`,
+                          borderRadius: "12px", padding: "11px 28px 11px 12px",
+                          fontSize: "13px", fontWeight: 500, color: c.muted,
+                        }}
+                      >
+                        {["Week", "Month", "All-time"].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <div style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: c.muted }}>▾</div>
+                    </div>
+                  </div>
 
                   <GlassCard glow>
                     <div className="flex items-center justify-between mb-4">
@@ -3046,7 +3257,7 @@ function App() {
                             minTickGap={22}
                           />
                           <YAxis
-                            tickFormatter={(v) => formatPace(Number(v)).replace("/km", "")}
+                            tickFormatter={(v) => `${Number(v).toFixed(1)}`}
                             tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
                             axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
                             tickLine={false}
@@ -3055,14 +3266,14 @@ function App() {
                           <Tooltip
                             contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: 12, color: TEXT }}
                             labelStyle={{ color: MUTED }}
-                            formatter={(val: any, _name: any, ctx: any) => [formatPace(Number(val)), `${ctx?.payload?.rounds ?? 1} rounds`]}
+                            formatter={(val: any, _name: any, ctx: any) => [`${Number(val).toFixed(2)} km/h`, `${ctx?.payload?.rounds ?? 1} rounds`]}
                           />
                         <Line type="monotone" dataKey="value" stroke={colors.accent} strokeWidth={2.5} dot={{ r: 3, fill: colors.accent }} activeDot={{ r: 5, fill: colors.accent }} style={{ filter: `drop-shadow(0 2px 4px ${colors.accentGlow})` }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                   <div className="mt-3 text-xs" style={{ color: MUTED }}>
-                    Lower pace is better.
+                    Higher speed is better (km/h).
                   </div>
                 </GlassCard>
 
@@ -3072,7 +3283,7 @@ function App() {
                       <button
                         onClick={() => setModal({ type: "RUN" })}
                         className="px-4 py-2 text-xs font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{ borderRadius: "var(--chip-radius)", background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
+                        style={{ borderRadius: radii.pill, background: "rgba(0,0,255,0.15)", border: `1px solid rgba(0,0,255,0.35)`, color: TEXT }}
                       >
                         + Add
                       </button>
@@ -3096,7 +3307,7 @@ function App() {
                             key={r.id}
                             title={`Run ${r.distanceMeters}m`}
                             subtitle={`${formatDateShort(r.dateISO)} • ${r.rounds} round${r.rounds === 1 ? "" : "s"}`}
-                            right={pace ? formatPace(pace) : "—"}
+                            right={pace ? `${(3600 / pace).toFixed(2)} km/h` : "—"}
                           />
                         );
                       })}
@@ -3106,11 +3317,11 @@ function App() {
             </div>
           ) : null}
 
-          {tab === "Health" ? (
+          {tab === "Body" ? (
             <div className="space-y-4">
               <div className="flex items-end justify-between">
                 <div>
-                  <div className="text-xl font-semibold">Health Metrics</div>
+                  <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1", marginBottom: "20px" }}>Body</div>
                   <div className="text-xs mt-1" style={{ color: MUTED }}>
                     Watch data synced from Apple Health
                   </div>
@@ -3125,14 +3336,14 @@ function App() {
                     onClick={() => setHealthPeriod(period)}
                     className="px-4 py-2 text-sm font-medium transition-all duration-200"
                     style={{
-                      borderRadius: "var(--chip-radius)",
+                      borderRadius: radii.pill,
                       ...(healthPeriod === period
                         ? {
                             background: ACCENT,
                             color: TEXT,
                           }
                         : {
-                            background: "var(--surface)",
+                            background: c.cardBg2,
                             color: MUTED,
                           })
                     }}
@@ -3174,11 +3385,11 @@ function App() {
                     <div className="grid grid-cols-3 gap-3">
                       {/* Steps Card */}
                       <div style={{ 
-                        background: "var(--surface)", 
-                        border: "var(--border)", 
-                        borderRadius: "var(--card-radius)",
-                        padding: "var(--card-pad)",
-                        boxShadow: "var(--shadow)",
+                        background: c.cardBg2,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: radii.card,
+                        padding: spacing.cardPad,
+                        boxShadow: shadows.card,
                         minHeight: "100px",
                         display: "flex",
                         flexDirection: "column",
@@ -3235,11 +3446,11 @@ function App() {
 
                       {/* Sleep Card */}
                       <div style={{ 
-                        background: "var(--surface)", 
-                        border: "var(--border)", 
-                        borderRadius: "var(--card-radius)",
-                        padding: "var(--card-pad)",
-                        boxShadow: "var(--shadow)",
+                        background: c.cardBg2,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: radii.card,
+                        padding: spacing.cardPad,
+                        boxShadow: shadows.card,
                       }}>
                         {/* Header with icon and title */}
                         <MetricCardHeader
@@ -3336,11 +3547,11 @@ function App() {
 
                       {/* Heart Rate Card */}
                       <div style={{ 
-                        background: "var(--surface)", 
-                        border: "var(--border)", 
-                        borderRadius: "var(--card-radius)",
-                        padding: "var(--card-pad)",
-                        boxShadow: "var(--shadow)",
+                        background: c.cardBg2,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: radii.card,
+                        padding: spacing.cardPad,
+                        boxShadow: shadows.card,
                       }}>
                         {/* Header with icon and title */}
                         <MetricCardHeader
@@ -3431,11 +3642,11 @@ function App() {
 
                     {/* Charts */}
                     <div style={{ 
-                      background: "var(--surface)", 
-                      border: "var(--border)", 
-                      borderRadius: "var(--card-radius)",
-                      padding: "var(--card-pad)",
-                      boxShadow: "var(--shadow)",
+                      background: c.cardBg2,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: radii.card,
+                      padding: spacing.cardPad,
+                      boxShadow: shadows.card,
                     }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Steps Trend</div>
@@ -3465,7 +3676,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val.toLocaleString()} steps`, ""]}
                             />
@@ -3476,11 +3687,11 @@ function App() {
                     </div>
 
                     <div style={{ 
-                      background: "var(--surface)", 
-                      border: "var(--border)", 
-                      borderRadius: "var(--card-radius)",
-                      padding: "var(--card-pad)",
-                      boxShadow: "var(--shadow)",
+                      background: c.cardBg2,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: radii.card,
+                      padding: spacing.cardPad,
+                      boxShadow: shadows.card,
                     }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Heart Rate</div>
@@ -3504,7 +3715,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val} bpm`, ""]}
                             />
@@ -3522,11 +3733,11 @@ function App() {
                     </div>
 
                     <div style={{ 
-                      background: "var(--surface)", 
-                      border: "var(--border)", 
-                      borderRadius: "var(--card-radius)",
-                      padding: "var(--card-pad)",
-                      boxShadow: "var(--shadow)",
+                      background: c.cardBg2,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: radii.card,
+                      padding: spacing.cardPad,
+                      boxShadow: shadows.card,
                     }}>
                       <div className="flex items-center justify-between mb-4">
                         <div className="text-sm font-semibold" style={{ color: TEXT }}>Sleep Hours</div>
@@ -3550,7 +3761,7 @@ function App() {
                               width={40}
                             />
                             <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "var(--input-radius)", color: TEXT }}
+                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
                               labelStyle={{ color: MUTED }}
                               formatter={(val: any) => [`${val.toFixed(1)}h`, ""]}
                             />
@@ -3565,72 +3776,10 @@ function App() {
             </div>
           ) : null}
 
-          {tab === "Master" ? (
-            <MasterDashboard userId={session?.user?.id ?? ""} />
-          ) : null}
-
-          {tab === "Badges" ? (
-            <div className="space-y-4">
-              <div>
-                <div className="text-xl font-semibold">Badges</div>
-                <div className="text-xs mt-1" style={{ color: MUTED }}>
-                  Trophy room + milestones
-                </div>
-              </div>
-
-              <GlassCard glow>
-                <div className="text-center py-4">
-                  <div className="text-4xl mb-3">🏆</div>
-                  <div className="text-2xl font-semibold" style={{ color: TEXT }}>
-                    {badgeSummary.earnedCount} / {badgeSummary.totalCount}
-                  </div>
-                  <div className="text-xs mt-1" style={{ color: MUTED }}>
-                    Badges earned
-                  </div>
-                </div>
-              </GlassCard>
-
-              <div className="space-y-3">
-                <div className="text-sm font-semibold" style={{ color: TEXT }}>
-                  Earned
-                </div>
-                <div className="grid gap-3">
-                  {badges.filter((b) => !b.locked).map((badge, index) => (
-                    <BadgeCard
-                      key={`${badge.title}-${index}`}
-                      title={badge.title}
-                      description={badge.description}
-                      icon={badge.icon}
-                      locked={badge.locked}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-sm font-semibold" style={{ color: TEXT }}>
-                  Locked
-                </div>
-                <div className="grid gap-3">
-                  {badges.filter((b) => b.locked).map((badge, index) => (
-                    <BadgeCard
-                      key={`${badge.title}-${index}`}
-                      title={badge.title}
-                      description={badge.description}
-                      icon={badge.icon}
-                      locked={badge.locked}
-                      progress={badge.progress}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           {tab === "Profile" ? (
             <div className="space-y-4">
               <div>
-                <div className="text-xl font-semibold">Profile</div>
+                  <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1", marginBottom: "20px" }}>Profile</div>
                 <div className="text-xs mt-1" style={{ color: MUTED }}>
                   Settings + integrations
                 </div>
@@ -3681,6 +3830,223 @@ function App() {
                 </div>
               </Card>
 
+              <GlassCard>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-base font-semibold" style={{ color: TEXT }}>
+                      Strava
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+                      {stravaConnection 
+                        ? `Connected to Strava${stravaConnection.athlete_name ? ` • ${stravaConnection.athlete_name}` : ''}`
+                        : 'Import runs and cardio sessions'}
+                    </div>
+                  </div>
+                </div>
+
+                {stravaConnection ? (
+                  <div className="space-y-3">
+                    <div className="text-xs" style={{ color: MUTED }}>
+                      {stravaConnection.last_sync_at 
+                        ? `Last sync: ${formatDateShort(stravaConnection.last_sync_at.split('T')[0])}`
+                        : 'Never synced'}
+                    </div>
+                    <div className="flex gap-2">
+                      <PrimaryButton
+                        onClick={async () => {
+                          setStravaSyncLoading(true);
+                          try {
+                            const result = await syncStrava();
+                            // Reload connection and activities
+                            const connection = await fetchStravaConnection();
+                            setStravaConnection(connection ? {
+                              athlete_name: connection.athlete_name,
+                              last_sync_at: connection.last_sync_at,
+                            } : null);
+                            const activities = await fetchStravaActivities();
+                            setStravaActivities(activities);
+                            
+                            // Show context-aware toast
+                            if (result.importedCount > 0) {
+                              const lastSyncDate = connection?.last_sync_at 
+                                ? formatDateShort(connection.last_sync_at.split('T')[0])
+                                : null;
+                              showToast({
+                                title: 'Strava synced ✅',
+                                body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.${lastSyncDate ? ` Last sync: ${lastSyncDate}` : ''}`,
+                                variant: 'success',
+                                autoDismiss: true,
+                                dismissAfter: 4000,
+                              });
+                            } else if (result.updatedCount > 0) {
+                              showToast({
+                                title: 'Strava synced ✅',
+                                body: `Updated ${result.updatedCount} activit${result.updatedCount === 1 ? 'y' : 'ies'}.`,
+                                variant: 'success',
+                                autoDismiss: true,
+                                dismissAfter: 3000,
+                              });
+                            } else {
+                              // No new or updated activities
+                              showToast({
+                                title: "You're up to date",
+                                body: 'No new Strava activities since your last sync.',
+                                variant: 'info',
+                                autoDismiss: false,
+                                secondaryAction: {
+                                  label: 'Sync last 30 days',
+                                  onClick: async () => {
+                                    setStravaSyncLoading(true);
+                                    try {
+                                      // Call sync - API will sync from last_sync_at or default to 30 days
+                                      const result = await syncStrava();
+                                      const connection = await fetchStravaConnection();
+                                      setStravaConnection(connection ? {
+                                        athlete_name: connection.athlete_name,
+                                        last_sync_at: connection.last_sync_at,
+                                      } : null);
+                                      const activities = await fetchStravaActivities();
+                                      setStravaActivities(activities);
+                                      
+                                      if (result.importedCount > 0 || result.updatedCount > 0) {
+                                        showToast({
+                                          title: 'Strava synced ✅',
+                                          body: `Found ${result.importedCount + result.updatedCount} activit${result.importedCount + result.updatedCount === 1 ? 'y' : 'ies'}.`,
+                                          variant: 'success',
+                                          autoDismiss: true,
+                                          dismissAfter: 4000,
+                                        });
+                                      } else {
+                                        showToast({
+                                          title: 'No activities found',
+                                          body: 'No new Strava activities found.',
+                                          variant: 'info',
+                                          autoDismiss: true,
+                                          dismissAfter: 3000,
+                                        });
+                                      }
+                                    } catch (error: any) {
+                                      showToast({
+                                        title: 'Sync failed',
+                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                        variant: 'error',
+                                        autoDismiss: true,
+                                        dismissAfter: 4000,
+                                      });
+                                    } finally {
+                                      setStravaSyncLoading(false);
+                                    }
+                                  },
+                                },
+                              });
+                            }
+                          } catch (error: any) {
+                            if (error.message?.includes('Rate limit')) {
+                              showToast({
+                                title: 'Rate limit reached',
+                                body: 'Strava rate limit reached. Please try again later.',
+                                variant: 'error',
+                                autoDismiss: true,
+                                dismissAfter: 5000,
+                              });
+                            } else {
+                              showToast({
+                                title: 'Sync failed',
+                                body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                variant: 'error',
+                                action: {
+                                  label: 'Try again',
+                                  onClick: async () => {
+                                    setStravaSyncLoading(true);
+                                    try {
+                                      const result = await syncStrava();
+                                      const connection = await fetchStravaConnection();
+                                      setStravaConnection(connection ? {
+                                        athlete_name: connection.athlete_name,
+                                        last_sync_at: connection.last_sync_at,
+                                      } : null);
+                                      const activities = await fetchStravaActivities();
+                                      setStravaActivities(activities);
+                                      showToast({
+                                        title: 'Strava synced ✅',
+                                        body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.`,
+                                        variant: 'success',
+                                        autoDismiss: true,
+                                        dismissAfter: 3000,
+                                      });
+                                    } catch (retryError: any) {
+                                      showToast({
+                                        title: 'Sync failed',
+                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
+                                        variant: 'error',
+                                        autoDismiss: true,
+                                        dismissAfter: 4000,
+                                      });
+                                    } finally {
+                                      setStravaSyncLoading(false);
+                                    }
+                                  },
+                                },
+                                autoDismiss: false,
+                              });
+                            }
+                          } finally {
+                            setStravaSyncLoading(false);
+                          }
+                        }}
+                        disabled={stravaSyncLoading}
+                      >
+                        {stravaSyncLoading ? 'Syncing...' : 'Sync now'}
+                      </PrimaryButton>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Disconnect Strava? Your imported activities will remain.')) return;
+                          try {
+                            await disconnectStrava();
+                            setStravaConnection(null);
+                            // Keep activities - don't clear them
+                          } catch (error: any) {
+                            alert(`Disconnect failed: ${error.message || 'Unknown error'}`);
+                          }
+                        }}
+                        className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: radii.pill,
+                          color: TEXT,
+                          flex: 1,
+                        }}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <PrimaryButton
+                      onClick={async () => {
+                        setStravaLoading(true);
+                        try {
+                          await connectStrava();
+                          // Will redirect, so loading state will be lost
+                        } catch (error: any) {
+                          setStravaLoading(false);
+                          if (error.message?.includes('not configured') || error.message?.includes('env')) {
+                            alert('Strava is not configured. Please contact support.');
+                          } else {
+                            alert(`Connection failed: ${error.message || 'Unknown error'}`);
+                          }
+                        }
+                      }}
+                      disabled={stravaLoading}
+                    >
+                      {stravaLoading ? 'Connecting...' : 'Connect Strava'}
+                    </PrimaryButton>
+                  </div>
+                )}
+              </GlassCard>
+
               <Card title="Data sources">
                 <div className="flex flex-wrap gap-2">
                   <Badge>Manual journal</Badge>
@@ -3690,6 +4056,29 @@ function App() {
                   Your Overview totals include both manual entries and imported workouts.
                 </div>
               </Card>
+
+              <button
+                onClick={() => setSubView("coach")}
+                style={{
+                  width: "100%", padding: "16px", borderRadius: radii.card,
+                  background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
+                  display: "flex", alignItems: "center", gap: "12px",
+                  cursor: "pointer", fontFamily: "inherit", marginBottom: "4px",
+                }}
+              >
+                <div style={{
+                  width: "40px", height: "40px", borderRadius: "10px", flexShrink: 0,
+                  background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Users size={20} color={c.accent} />
+                </div>
+                <div style={{ flex: 1, textAlign: "left" }}>
+                  <div style={{ fontSize: "15px", fontWeight: 600, color: c.text }}>Coach Portal</div>
+                  <div style={{ fontSize: "12px", color: c.muted, marginTop: "2px" }}>View member progress · PIN protected</div>
+                </div>
+                <ChevronRight size={16} color={c.muted2} />
+              </button>
 
               <PrimaryButton onClick={() => supabase.auth.signOut()}>Logout</PrimaryButton>
             </div>
@@ -3707,17 +4096,9 @@ function App() {
       >
         <div className="flex flex-col items-center gap-4">
           <button
-            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
-            style={{ 
-              borderRadius: "var(--card-radius)", 
-              background: colors.cardBg, 
-              border: `1px solid ${BORDER}`, 
-              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-            }}
-            onClick={() => {
-              setLiftDate(todayISO());
-              setModal({ type: "LIFT" });
-            }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
+            onClick={() => setModal({ type: "LIFT" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add lift top set
@@ -3727,17 +4108,9 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
-            style={{ 
-              borderRadius: "var(--card-radius)", 
-              background: colors.cardBg, 
-              border: `1px solid ${BORDER}`, 
-              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-            }}
-            onClick={() => {
-              setCardioDate(todayISO());
-              setModal({ type: "CARDIO" });
-            }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
+            onClick={() => setModal({ type: "CARDIO" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add cardio effort
@@ -3747,17 +4120,9 @@ function App() {
             </div>
           </button>
           <button
-            className="w-full max-w-sm px-6 py-4 text-left transition-all duration-200 hover:opacity-95 active:scale-[0.98]"
-            style={{ 
-              borderRadius: "var(--card-radius)", 
-              background: colors.cardBg, 
-              border: `1px solid ${BORDER}`, 
-              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-            }}
-            onClick={() => {
-              setRunDate(todayISO());
-              setModal({ type: "RUN" });
-            }}
+            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
+            onClick={() => setModal({ type: "RUN" })}
           >
             <div className="text-sm font-semibold" style={{ color: TEXT }}>
               Add run
@@ -3769,64 +4134,26 @@ function App() {
         </div>
       </Modal>
 
-      {/* More menu */}
-      <Modal
-        open={showMoreMenu}
-        title="More"
-        onClose={() => setShowMoreMenu(false)}
-        centered
-        maxWidth="sm:max-w-md"
-      >
-        <div className="space-y-3">
-          {profileRole === "admin" ? (
-            <button
-              className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-              style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
-              onClick={() => {
-                setTab("Master");
-                setShowMoreMenu(false);
-              }}
-            >
-              <div className="text-sm font-semibold" style={{ color: TEXT }}>
-                Master Dashboard
-              </div>
-              <div className="text-xs mt-1" style={{ color: MUTED }}>
-                Members progression + leaderboard
-              </div>
-            </button>
-          ) : null}
-          <button
-            className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
-            onClick={() => {
-              setTab("Badges");
-              setShowMoreMenu(false);
-            }}
-          >
-            <div className="text-sm font-semibold" style={{ color: TEXT }}>
-              Badges
-            </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              Trophy room + milestones
-            </div>
-          </button>
-          <button
-            className="w-full px-4 py-3 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: "var(--input-radius)", background: colors.cardBg, border: `1px solid ${BORDER}` }}
-            onClick={() => {
-              setTab("Profile");
-              setShowMoreMenu(false);
-            }}
-          >
-            <div className="text-sm font-semibold" style={{ color: TEXT }}>
-              Profile
-            </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              Settings + integrations
-            </div>
-          </button>
-        </div>
-      </Modal>
+      {import.meta.env.DEV ? (
+        <button
+          onClick={() => setDesignPreviewOpen(true)}
+          style={{
+            position: "fixed",
+            left: "12px",
+            bottom: "80px",
+            zIndex: 65,
+            borderRadius: "999px",
+            border: `1px solid ${BORDER}`,
+            background: CARD2,
+            color: TEXT,
+            fontSize: "11px",
+            fontWeight: 600,
+            padding: "8px 12px",
+          }}
+        >
+          Preview v2
+        </button>
+      ) : null}
 
       {/* Lift modal */}
       <Modal
@@ -3891,7 +4218,7 @@ function App() {
                           boxShadow: "0 2px 6px rgba(0,0,255,0.3)",
                         }
                       : {
-                          background: "var(--surface)",
+                          background: c.cardBg2,
                           color: TEXT,
                           border: `1px solid ${BORDER}`,
                         }
@@ -3905,7 +4232,7 @@ function App() {
                   onClick={() => setLiftRPE(null)}
                   className="px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 active:scale-95"
                   style={{
-                    background: "var(--surface)",
+                    background: c.cardBg2,
                     color: MUTED,
                     border: `1px solid ${BORDER}`,
                   }}
@@ -4014,7 +4341,7 @@ function App() {
                       boxShadow: "0 2px 6px rgba(0,0,255,0.3)"
                     }
                   : { 
-                      background: "var(--surface)", 
+                      background: c.cardBg2, 
                       border: `1px solid ${BORDER}`, 
                       color: TEXT 
                     }
@@ -4048,6 +4375,52 @@ function App() {
           <PrimaryButton onClick={addRun}>Save</PrimaryButton>
         </div>
       </Modal>
+
+      <button
+        onClick={() => setShowQuickStartSheet(true)}
+        style={{
+          position: "fixed",
+          right: "16px",
+          bottom: "80px",
+          width: "52px",
+          height: "52px",
+          borderRadius: "999px",
+          background: ACCENT,
+          color: "#fff",
+          boxShadow: `0 4px 20px ${ACCENT}66`,
+          zIndex: 60,
+          fontSize: "26px",
+          lineHeight: 1,
+        }}
+      >
+        +
+      </button>
+
+      <BottomSheet open={showQuickStartSheet} onClose={() => setShowQuickStartSheet(false)} title="Start workout">
+        <div className="space-y-2">
+          <PrimaryButton onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}>Start from scratch</PrimaryButton>
+          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}>
+            Resume last session
+          </PrimaryButton>
+          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setShowRestSheet(true); }}>
+            Rest timer
+          </PrimaryButton>
+          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setShowPlateSheet(true); }}>
+            Plate calculator
+          </PrimaryButton>
+          <PrimaryButton variant="ghost" onClick={() => { setShowQuickStartSheet(false); showToast("Programs coming soon"); }}>
+            From program
+          </PrimaryButton>
+        </div>
+      </BottomSheet>
+
+      <BottomSheet open={showRestSheet} onClose={() => setShowRestSheet(false)} title="Rest timer">
+        <RestTimer defaultSeconds={90} />
+      </BottomSheet>
+
+      <BottomSheet open={showPlateSheet} onClose={() => setShowPlateSheet(false)} title="Plate calculator">
+        <PlateCalculator onApply={(kg) => { showToast(`Applied ${kg}kg to next set`); setShowPlateSheet(false); }} />
+      </BottomSheet>
     </>
   );
 }

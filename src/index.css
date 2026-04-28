@@ -22,6 +22,25 @@
   font-style: normal;
   font-display: swap;
 }
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes completePulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+@keyframes pulseBorder {
+  from { opacity: 0.3; }
+  to   { opacity: 0.8; }
+}
+
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     *, :before, :after, ::backdrop {

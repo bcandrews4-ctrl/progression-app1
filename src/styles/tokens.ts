@@ -2,17 +2,39 @@
 // Single source of truth for consistent design system
 
 export const colors = {
-  bg: "#000000",
+  bg: "#060608",
   text: "#FFFFFF",
-  muted: "rgba(255,255,255,0.6)",
-  surface: "#0A0A0A",
-  cardBg: "#0B0B0B",
-  cardBg2: "#111111",
-  border: "rgba(255,255,255,0.12)",
+  muted: "rgba(255,255,255,0.5)",
+  muted2: "rgba(255,255,255,0.25)",
+  surface: "#0E0E12",
+  cardBg: "#0E0E12",
+  cardBg2: "#141418",
+  border: "rgba(255,255,255,0.08)",
+  borderMid: "rgba(255,255,255,0.14)",
   accent: "#0000FF",
-  accentGlow: "rgba(0,0,255,0.15)",
+  accentGlow: "rgba(0,0,255,0.18)",
   accentSoft: "rgba(0,0,255,0.08)",
-  accentBorder: "rgba(0,0,255,0.35)",
+  accentBorder: "rgba(0,0,255,0.3)",
+  green: "#22c55e",
+  orange: "#f97316",
+} as const;
+
+export const lightColors = {
+  bg: "#F0EFE9",
+  text: "#0A0A0F",
+  muted: "rgba(10,10,15,0.5)",
+  muted2: "rgba(10,10,15,0.3)",
+  surface: "#FFFFFF",
+  cardBg: "#FFFFFF",
+  cardBg2: "#F8F7F2",
+  border: "rgba(10,10,15,0.1)",
+  borderMid: "rgba(10,10,15,0.18)",
+  accent: "#0000CC",
+  accentGlow: "rgba(0,0,204,0.15)",
+  accentSoft: "rgba(0,0,204,0.08)",
+  accentBorder: "rgba(0,0,204,0.3)",
+  green: "#16a34a",
+  orange: "#ea580c",
 } as const;
 
 // Standardized radius tokens
@@ -21,12 +43,13 @@ export const radii = {
   md: "12px",
   lg: "16px",
   xl: "20px",
-  "2xl": "22px", // Standardized card radius
+  "2xl": "22px",
   "3xl": "28px",
-  full: "999px", // Standardized chip/pill radius
-  card: "22px", // Alias for card-radius
-  input: "16px", // Standardized input radius
-  button: "18px", // Standardized button radius
+  full: "999px",
+  pill: "999px",
+  card: "22px",
+  input: "16px",
+  button: "18px",
 } as const;
 
 // Standardized shadow tokens
