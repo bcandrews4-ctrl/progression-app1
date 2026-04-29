@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { radii } from "../styles/tokens";
 import { useTheme } from "../hooks/useTheme";
 import { AreaChart } from "./AreaChart";
-import { ChevronLeft, ChevronRight, Users, Delete } from "lucide-react";
+import { ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { fetchAdminDashboardData, AdminMemberSummary, AdminMemberData, LiftEntry } from "../lib/db";
 
 interface LiftSeries {
   label: string;
@@ -10,69 +11,96 @@ interface LiftSeries {
 }
 
 interface Member {
-  id: number;
+  id: string;
   name: string;
+  email: string | null;
   focus: string;
   streak: number;
   workouts: number;
   lastSeen: string;
   status: "active" | "inactive";
   lifts: Record<string, LiftSeries[]>;
-  insight: string;
 }
 
-const MEMBERS: Member[] = [
-  {
-    id: 1, name: "Jordan K.", focus: "Strength", streak: 7, workouts: 24,
-    lastSeen: "2 hrs ago", status: "active",
-    lifts: {
-      "Back Squat":  [{ label: "Jan", value: 120 }, { label: "Feb", value: 125 }, { label: "Mar", value: 130 }, { label: "Apr", value: 135 }],
-      "Deadlift":    [{ label: "Jan", value: 180 }, { label: "Feb", value: 185 }, { label: "Mar", value: 192 }, { label: "Apr", value: 197 }],
-      "Bench Press": [{ label: "Jan", value: 95  }, { label: "Feb", value: 100 }, { label: "Mar", value: 102 }, { label: "Apr", value: 105 }],
-    },
-    insight: "Deadlift progression is excellent (+17kg in 4 months). Bench is lagging — consider adding a second pressing day.",
-  },
-  {
-    id: 2, name: "Maya T.", focus: "Hypertrophy", streak: 18, workouts: 31,
-    lastSeen: "30 min ago", status: "active",
-    lifts: {
-      "Back Squat":  [{ label: "Jan", value: 85  }, { label: "Feb", value: 90  }, { label: "Mar", value: 95  }, { label: "Apr", value: 100 }],
-      "Deadlift":    [{ label: "Jan", value: 110 }, { label: "Feb", value: 118 }, { label: "Mar", value: 122 }, { label: "Apr", value: 127 }],
-      "Bench Press": [{ label: "Jan", value: 62  }, { label: "Feb", value: 65  }, { label: "Mar", value: 68  }, { label: "Apr", value: 72  }],
-    },
-    insight: "Best streak on record — 18 days. Volume increasing well across all lifts. Monitor recovery; consider a deload next week.",
-  },
-  {
-    id: 3, name: "Sam R.", focus: "Hybrid", streak: 9, workouts: 19,
-    lastSeen: "Yesterday", status: "active",
-    lifts: {
-      "Back Squat":  [{ label: "Jan", value: 100 }, { label: "Feb", value: 102 }, { label: "Mar", value: 105 }, { label: "Apr", value: 108 }],
-      "Deadlift":    [{ label: "Jan", value: 140 }, { label: "Feb", value: 145 }, { label: "Mar", value: 148 }, { label: "Apr", value: 152 }],
-      "Bench Press": [{ label: "Jan", value: 80  }, { label: "Feb", value: 82  }, { label: "Mar", value: 85  }, { label: "Apr", value: 87  }],
-    },
-    insight: "Consistent progress across all three. Running data from Strava shows improving 5km pace. Good hybrid balance.",
-  },
-  {
-    id: 4, name: "Chris B.", focus: "Strength", streak: 3, workouts: 12,
-    lastSeen: "3 days ago", status: "inactive",
-    lifts: {
-      "Back Squat":  [{ label: "Jan", value: 115 }, { label: "Feb", value: 118 }, { label: "Mar", value: 118 }, { label: "Apr", value: 120 }],
-      "Deadlift":    [{ label: "Jan", value: 160 }, { label: "Feb", value: 162 }, { label: "Mar", value: 160 }, { label: "Apr", value: 163 }],
-      "Bench Press": [{ label: "Jan", value: 100 }, { label: "Feb", value: 100 }, { label: "Mar", value: 102 }, { label: "Apr", value: 102 }],
-    },
-    insight: "Progress has plateaued on squat and bench for 6 weeks. Recommend a deload + reassess program structure. Attendance dropping.",
-  },
-  {
-    id: 5, name: "Pat L.", focus: "Hypertrophy", streak: 11, workouts: 22,
-    lastSeen: "1 hr ago", status: "active",
-    lifts: {
-      "Back Squat":  [{ label: "Jan", value: 90  }, { label: "Feb", value: 95  }, { label: "Mar", value: 100 }, { label: "Apr", value: 105 }],
-      "Deadlift":    [{ label: "Jan", value: 125 }, { label: "Feb", value: 132 }, { label: "Mar", value: 138 }, { label: "Apr", value: 143 }],
-      "Bench Press": [{ label: "Jan", value: 75  }, { label: "Feb", value: 78  }, { label: "Mar", value: 82  }, { label: "Apr", value: 86  }],
-    },
-    insight: "Strong linear progression on all three lifts. Deadlift +18kg in 4 months is above average. Hypertrophy focus is showing.",
-  },
-];
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatLastSeen(dateISO: string | null): string {
+  if (!dateISO) return "Never";
+  const diffDays = Math.round(
+    (Date.now() - new Date(dateISO + "T00:00:00").getTime()) / 86_400_000
+  );
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.round(diffDays / 7)}w ago`;
+  return `${Math.round(diffDays / 30)}mo ago`;
+}
+
+function computeStreak(allDates: string[]): number {
+  const unique = [...new Set(allDates)].sort().reverse();
+  if (!unique.length) return 0;
+  let streak = 0;
+  let expected = new Date().toISOString().slice(0, 10);
+  for (const d of unique) {
+    if (d === expected) {
+      streak++;
+      const prev = new Date(expected + "T00:00:00");
+      prev.setDate(prev.getDate() - 1);
+      expected = prev.toISOString().slice(0, 10);
+    } else if (d < expected) {
+      break;
+    }
+  }
+  return streak;
+}
+
+function buildLiftSeries(lifts: LiftEntry[]): Record<string, LiftSeries[]> {
+  const byType: Record<string, Record<string, number>> = {};
+  for (const l of lifts) {
+    if (!byType[l.lift]) byType[l.lift] = {};
+    const month = l.dateISO.slice(0, 7);
+    byType[l.lift][month] = Math.max(byType[l.lift][month] ?? 0, l.weightKg);
+  }
+  const result: Record<string, LiftSeries[]> = {};
+  for (const [type, byMonth] of Object.entries(byType)) {
+    const series = Object.entries(byMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, value]) => ({ label: month.slice(5), value }));
+    if (series.length >= 2) result[type] = series;
+  }
+  // Keep top 3 by number of months logged
+  return Object.fromEntries(
+    Object.entries(result)
+      .sort(([, a], [, b]) => b.length - a.length)
+      .slice(0, 3)
+  );
+}
+
+function buildMember(summary: AdminMemberSummary, data: AdminMemberData): Member {
+  const allDates = [
+    ...data.lifts.map((l) => l.dateISO),
+    ...data.runs.map((r) => r.dateISO),
+    ...data.cardio.map((c) => c.dateISO),
+  ];
+  const uniqueDates = [...new Set(allDates)].sort();
+  const lastDate = uniqueDates[uniqueDates.length - 1] ?? null;
+  const diffDays = lastDate
+    ? Math.round((Date.now() - new Date(lastDate + "T00:00:00").getTime()) / 86_400_000)
+    : 999;
+  return {
+    id: summary.userId,
+    name: summary.name,
+    email: summary.email,
+    focus: summary.trainingFocus ?? "Member",
+    streak: computeStreak(allDates),
+    workouts: uniqueDates.length,
+    lastSeen: formatLastSeen(lastDate),
+    status: diffDays <= 7 ? "active" : "inactive",
+    lifts: buildLiftSeries(data.lifts),
+  };
+}
+
+// ── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ name, size }: { name: string; size: number }) {
   const { c } = useTheme();
@@ -89,108 +117,49 @@ function Avatar({ name, size }: { name: string; size: number }) {
   );
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 interface CoachPortalProps {
   onExit: () => void;
+  userId: string;
+  isAdmin: boolean;
 }
 
-export function CoachPortal({ onExit }: CoachPortalProps) {
+export function CoachPortal({ onExit, userId, isAdmin }: CoachPortalProps) {
   const { c } = useTheme();
-  const [authed, setAuthed] = useState(false);
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [member, setMember] = useState<Member | null>(null);
-  const [liftKey, setLiftKey] = useState("Back Squat");
+  const [liftKey, setLiftKey] = useState("");
 
-  const tryLogin = () => {
-    if (pin === "1234") { setAuthed(true); setErr(false); }
-    else { setErr(true); setPin(""); }
-  };
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetchAdminDashboardData(userId, "All-time")
+      .then(({ members: summaries, memberData }) => {
+        const built = summaries
+          .map((s) => buildMember(s, memberData[s.userId] ?? { lifts: [], cardio: [], runs: [] }))
+          .sort((a, b) => {
+            if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+            return b.workouts - a.workouts;
+          });
+        setMembers(built);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load member data"))
+      .finally(() => setLoading(false));
+  }, [userId, isAdmin]);
 
-  // PIN screen
-  if (!authed) {
-    return (
-      <div style={{
-        minHeight: "100%", background: c.bg, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", padding: "32px 24px",
-      }}>
-        <div style={{ textAlign: "center", marginBottom: "40px" }}>
-          <div style={{
-            width: "64px", height: "64px", borderRadius: "18px", margin: "0 auto 16px",
-            background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <Users size={30} color={c.accent} />
-          </div>
-          <div style={{ fontSize: "26px", fontWeight: 700, color: c.text, marginBottom: "6px" }}>Coach Portal</div>
-          <div style={{ fontSize: "14px", color: c.muted }}>Enter your master PIN to access member data</div>
-        </div>
+  if (!isAdmin) return null;
 
-        {/* PIN dots */}
-        <div style={{ display: "flex", gap: "14px", marginBottom: "28px" }}>
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} style={{
-              width: "18px", height: "18px", borderRadius: "50%",
-              background: pin.length > i ? c.accent : c.border,
-              border: `2px solid ${pin.length > i ? c.accent : c.border}`,
-              transition: "all 0.15s",
-            }} />
-          ))}
-        </div>
-
-        {err && <div style={{ fontSize: "13px", color: c.red, marginBottom: "16px" }}>Incorrect PIN. Try again.</div>}
-
-        {/* Keypad */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", width: "240px", marginBottom: "24px" }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, "", 0, "del"].map((k, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                if (k === "del") setPin((p) => p.slice(0, -1));
-                else if (k !== "" && pin.length < 4) { const next = pin + String(k); setPin(next); if (next.length === 4) setTimeout(() => { if (next === "1234") { setAuthed(true); setErr(false); } else { setErr(true); setPin(""); } }, 200); }
-              }}
-              style={{
-                height: "56px", borderRadius: "12px", fontSize: k === "del" ? "14px" : "20px", fontWeight: 600,
-                background: k === "" ? "transparent" : c.cardBg2,
-                border: k === "" ? "none" : `1px solid ${c.border}`,
-                color: c.text, cursor: k === "" ? "default" : "pointer", fontFamily: "inherit",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >
-              {k === "del" ? <Delete size={18} color={c.muted} /> : k}
-            </button>
-          ))}
-        </div>
-
-        <button
-          onClick={tryLogin}
-          disabled={pin.length < 4}
-          style={{
-            width: "100%", maxWidth: "240px", height: "52px", borderRadius: radii.pill,
-            background: pin.length === 4 ? c.accent : c.cardBg2,
-            color: pin.length === 4 ? "#fff" : c.muted,
-            border: "none", fontSize: "16px", fontWeight: 600, cursor: pin.length === 4 ? "pointer" : "not-allowed",
-            fontFamily: "inherit",
-          }}
-        >
-          Unlock
-        </button>
-        <button
-          onClick={onExit}
-          style={{ marginTop: "16px", background: "none", border: "none", color: c.muted, fontSize: "14px", cursor: "pointer", fontFamily: "inherit" }}
-        >
-          Back to app
-        </button>
-        <div style={{ marginTop: "20px", fontSize: "11px", color: c.muted2 }}>Demo PIN: 1234</div>
-      </div>
-    );
-  }
-
-  // Member detail
+  // Member detail view
   if (member) {
-    const liftData = member.lifts[liftKey];
+    const liftKeys = Object.keys(member.lifts);
+    const activeLiftKey = liftKeys.includes(liftKey) ? liftKey : liftKeys[0] ?? "";
+    const liftData = activeLiftKey ? member.lifts[activeLiftKey] : [];
     const vals = liftData.map((d) => d.value);
-    const changePct = (((vals[vals.length - 1] - vals[0]) / vals[0]) * 100).toFixed(1);
-    const changeNum = parseFloat(changePct);
+    const changePct = vals.length >= 2
+      ? (((vals[vals.length - 1] - vals[0]) / vals[0]) * 100).toFixed(1)
+      : null;
 
     return (
       <div style={{ minHeight: "100%", background: c.bg, overflowY: "auto" }}>
@@ -214,7 +183,6 @@ export function CoachPortal({ onExit }: CoachPortalProps) {
         </div>
 
         <div style={{ padding: "16px 16px 40px" }}>
-          {/* Key stats */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "16px" }}>
             {[
               { label: "Streak", value: `${member.streak}d` },
@@ -228,73 +196,86 @@ export function CoachPortal({ onExit }: CoachPortalProps) {
             ))}
           </div>
 
-          {/* Lift chart */}
-          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "14px 12px 10px", marginBottom: "14px" }}>
-            <div style={{ display: "flex", gap: "8px", marginBottom: "10px", overflowX: "auto" }}>
-              {Object.keys(member.lifts).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setLiftKey(k)}
-                  style={{
-                    flexShrink: 0, padding: "6px 12px", borderRadius: radii.pill, fontSize: "12px", fontWeight: 500,
-                    background: liftKey === k ? c.accent : "rgba(255,255,255,0.05)",
-                    border: `1px solid ${liftKey === k ? c.accent : c.border}`,
-                    color: liftKey === k ? "#fff" : c.muted, cursor: "pointer", fontFamily: "inherit",
-                  }}
-                >
-                  {k}
-                </button>
-              ))}
+          {liftKeys.length > 0 && (
+            <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "14px 12px 10px", marginBottom: "14px" }}>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "10px", overflowX: "auto" }}>
+                {liftKeys.map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setLiftKey(k)}
+                    style={{
+                      flexShrink: 0, padding: "6px 12px", borderRadius: radii.pill, fontSize: "12px", fontWeight: 500,
+                      background: activeLiftKey === k ? c.accent : "rgba(255,255,255,0.05)",
+                      border: `1px solid ${activeLiftKey === k ? c.accent : c.border}`,
+                      color: activeLiftKey === k ? "#fff" : c.muted, cursor: "pointer", fontFamily: "inherit",
+                    }}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: "12px", color: c.muted, marginBottom: "6px" }}>
+                Max weight — {activeLiftKey}
+                {changePct !== null && (
+                  <span style={{ color: parseFloat(changePct) >= 0 ? c.green : c.red, fontWeight: 600 }}>
+                    {" "}{parseFloat(changePct) >= 0 ? "+" : ""}{changePct}%
+                  </span>
+                )}
+              </div>
+              <AreaChart data={liftData} height={120} />
             </div>
-            <div style={{ fontSize: "12px", color: c.muted, marginBottom: "6px" }}>
-              e1RM — {liftKey}{" "}
-              <span style={{ color: changeNum >= 0 ? c.green : c.red, fontWeight: 600 }}>
-                {changeNum >= 0 ? "+" : ""}{changePct}% (4 months)
-              </span>
-            </div>
-            <AreaChart data={liftData} height={120} />
-          </div>
+          )}
 
-          {/* Coach insight */}
-          <div style={{ background: c.accentSoft, border: `1px solid ${c.accentBorder}`, borderRadius: radii.card, padding: "14px 16px", marginBottom: "14px" }}>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: c.accent, marginBottom: "6px" }}>Coach AI Insight</div>
-            <div style={{ fontSize: "13px", color: c.muted, lineHeight: 1.6 }}>{member.insight}</div>
-          </div>
-
-          {/* All lifts */}
-          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "14px 16px" }}>
-            <div style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
-              All lifts — latest
-            </div>
-            {Object.entries(member.lifts).map(([lift, data], i, arr) => {
-              const latest = data[data.length - 1].value;
-              const prev = data[0].value;
-              const pct = (((latest - prev) / prev) * 100).toFixed(1);
-              return (
-                <div key={lift} style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "10px 0", borderBottom: i < arr.length - 1 ? `1px solid ${c.border}` : "none",
-                }}>
-                  <div style={{ fontSize: "14px", color: c.text, fontWeight: 500 }}>{lift}</div>
-                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: c.text }}>{latest}kg</div>
-                    <div style={{
-                      padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600,
-                      background: `${c.green}22`, color: c.green, border: `1px solid ${c.green}44`,
-                    }}>
-                      +{pct}%
+          {liftKeys.length > 0 && (
+            <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "14px 16px" }}>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: c.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "12px" }}>
+                All lifts — monthly peak
+              </div>
+              {liftKeys.map((lift, i, arr) => {
+                const series = member.lifts[lift];
+                const latest = series[series.length - 1]?.value ?? 0;
+                const first = series[0]?.value ?? 0;
+                const pct = first > 0 ? (((latest - first) / first) * 100).toFixed(1) : null;
+                return (
+                  <div key={lift} style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 0", borderBottom: i < arr.length - 1 ? `1px solid ${c.border}` : "none",
+                  }}>
+                    <div style={{ fontSize: "14px", color: c.text, fontWeight: 500 }}>{lift}</div>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: c.text }}>{latest}kg</div>
+                      {pct !== null && (
+                        <div style={{
+                          padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600,
+                          background: `${parseFloat(pct) >= 0 ? c.green : c.red}22`,
+                          color: parseFloat(pct) >= 0 ? c.green : c.red,
+                          border: `1px solid ${parseFloat(pct) >= 0 ? c.green : c.red}44`,
+                        }}>
+                          {parseFloat(pct) >= 0 ? "+" : ""}{pct}%
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
+
+          {liftKeys.length === 0 && (
+            <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "24px", textAlign: "center" }}>
+              <div style={{ fontSize: "13px", color: c.muted }}>No lift data recorded yet.</div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // Member list
+  // Member list view
+  const activeCount = members.filter((m) => m.status === "active").length;
+  const inactiveCount = members.filter((m) => m.status === "inactive").length;
+  const totalSessions = members.reduce((sum, m) => sum + m.workouts, 0);
+
   return (
     <div style={{ minHeight: "100%", background: c.bg, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "16px", borderBottom: `1px solid ${c.border}` }}>
@@ -306,67 +287,87 @@ export function CoachPortal({ onExit }: CoachPortalProps) {
           marginLeft: "auto", padding: "4px 10px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600,
           background: `${c.accent}22`, color: c.accent, border: `1px solid ${c.accentBorder}`,
         }}>
-          {MEMBERS.length} members
+          {loading ? "…" : `${members.length} members`}
         </div>
       </div>
 
       <div style={{ padding: "16px 16px 40px" }}>
-        {/* Summary */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "16px" }}>
-          <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
-            <div style={{ fontSize: "22px", fontWeight: 700, color: c.green }}>4</div>
-            <div style={{ fontSize: "10px", color: c.muted }}>Active today</div>
+        {loading && (
+          <div style={{ textAlign: "center", padding: "48px 0", color: c.muted, fontSize: "14px" }}>
+            Loading member data…
           </div>
-          <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
-            <div style={{ fontSize: "22px", fontWeight: 700, color: c.text }}>108</div>
-            <div style={{ fontSize: "10px", color: c.muted }}>Total sessions</div>
-          </div>
-          <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
-            <div style={{ fontSize: "22px", fontWeight: 700, color: c.orange }}>1</div>
-            <div style={{ fontSize: "10px", color: c.muted }}>Needs attention</div>
-          </div>
-        </div>
+        )}
 
-        {/* Member cards */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {MEMBERS.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => { setMember(m); setLiftKey("Back Squat"); }}
-              style={{
-                background: c.cardBg2,
-                border: `1px solid ${m.status === "inactive" ? `${c.red}44` : c.border}`,
-                borderRadius: radii.card, padding: "14px", cursor: "pointer", transition: "all 0.15s",
-                display: "flex", alignItems: "center", gap: "12px",
-              }}
-            >
-              <Avatar name={m.name} size={40} />
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
-                  <div style={{ fontSize: "15px", fontWeight: 600, color: c.text }}>{m.name}</div>
-                  <div style={{
-                    padding: "2px 8px", borderRadius: radii.pill, fontSize: "10px", fontWeight: 600,
-                    background: `${c.accent}22`, color: c.accent, border: `1px solid ${c.accentBorder}`,
-                  }}>
-                    {m.focus}
-                  </div>
-                  {m.status === "inactive" && (
-                    <div style={{
-                      padding: "2px 8px", borderRadius: radii.pill, fontSize: "10px", fontWeight: 600,
-                      background: `${c.red}22`, color: c.red, border: `1px solid ${c.red}44`,
-                    }}>
-                      Inactive
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: "12px", color: c.muted }}>
-                  {m.streak}d streak · {m.workouts} sessions · {m.lastSeen}
-                </div>
+        {error && (
+          <div style={{ background: `${c.red}22`, border: `1px solid ${c.red}44`, borderRadius: radii.card, padding: "14px 16px", color: c.red, fontSize: "13px" }}>
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", marginBottom: "16px" }}>
+              <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
+                <div style={{ fontSize: "22px", fontWeight: 700, color: c.green }}>{activeCount}</div>
+                <div style={{ fontSize: "10px", color: c.muted }}>Active ≤7d</div>
               </div>
-              <ChevronRight size={16} color={c.muted2} />
+              <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
+                <div style={{ fontSize: "22px", fontWeight: 700, color: c.text }}>{totalSessions}</div>
+                <div style={{ fontSize: "10px", color: c.muted }}>Total sessions</div>
+              </div>
+              <div style={{ background: c.cardBg2, borderRadius: radii.card, border: `1px solid ${c.border}`, padding: "12px", textAlign: "center" }}>
+                <div style={{ fontSize: "22px", fontWeight: 700, color: c.orange }}>{inactiveCount}</div>
+                <div style={{ fontSize: "10px", color: c.muted }}>Needs attention</div>
+              </div>
             </div>
-          ))}
-        </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {members.map((m) => (
+                <div
+                  key={m.id}
+                  onClick={() => { setMember(m); setLiftKey(Object.keys(m.lifts)[0] ?? ""); }}
+                  style={{
+                    background: c.cardBg2,
+                    border: `1px solid ${m.status === "inactive" ? `${c.red}44` : c.border}`,
+                    borderRadius: radii.card, padding: "14px", cursor: "pointer", transition: "all 0.15s",
+                    display: "flex", alignItems: "center", gap: "12px",
+                  }}
+                >
+                  <Avatar name={m.name} size={40} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                      <div style={{ fontSize: "15px", fontWeight: 600, color: c.text }}>{m.name}</div>
+                      <div style={{
+                        padding: "2px 8px", borderRadius: radii.pill, fontSize: "10px", fontWeight: 600,
+                        background: `${c.accent}22`, color: c.accent, border: `1px solid ${c.accentBorder}`,
+                      }}>
+                        {m.focus}
+                      </div>
+                      {m.status === "inactive" && (
+                        <div style={{
+                          padding: "2px 8px", borderRadius: radii.pill, fontSize: "10px", fontWeight: 600,
+                          background: `${c.red}22`, color: c.red, border: `1px solid ${c.red}44`,
+                        }}>
+                          Inactive
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: "12px", color: c.muted }}>
+                      {m.streak}d streak · {m.workouts} sessions · {m.lastSeen}
+                    </div>
+                  </div>
+                  <ChevronRight size={16} color={c.muted2} />
+                </div>
+              ))}
+
+              {members.length === 0 && (
+                <div style={{ textAlign: "center", padding: "48px 0", color: c.muted, fontSize: "14px" }}>
+                  No member data found.
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

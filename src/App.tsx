@@ -29,6 +29,7 @@ import {
   fetchImported,
   fetchHealth,
 } from "./lib/db";
+import { fetchStravaConnection, fetchStravaActivities, syncStrava, connectStrava, disconnectStrava, mapStravaTypeToCategory } from "./lib/strava";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -1292,6 +1293,10 @@ function App() {
   const [designPreviewOpen, setDesignPreviewOpen] = useState(
     () => import.meta.env.DEV && localStorage.getItem("hh_design_preview") === "1",
   );
+  const [stravaConnection, setStravaConnection] = useState<{ athlete_name: string; last_sync_at: string } | null>(null);
+  const [stravaActivities, setStravaActivities] = useState<Array<{ id: string; type: string; start_date: string; name?: string; distance_m?: number; moving_time: number; calories?: number; average_heartrate?: number }>>([]);
+  const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
+  const [stravaLoading, setStravaLoading] = useState(false);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -1419,7 +1424,12 @@ function App() {
   // Profile + data loading from relational tables
   useEffect(() => {
     if (devBypassAuth) {
-      applyUserData(emptyData);
+      setFocus(emptyData.focus);
+      setLifts(emptyData.lifts);
+      setCardio(emptyData.cardio);
+      setRuns(emptyData.runs);
+      setImported(emptyData.imported);
+      setHealthData(emptyData.health);
       setProfileTrainingFocus(emptyData.focus || "HYBRID");
       setOnboardingComplete(true);
       setDataLoaded(true);
@@ -1492,7 +1502,7 @@ function App() {
       }
     };
 
-    loadProfile();
+    load();
     return () => {
       cancelled = true;
     };
@@ -2737,8 +2747,8 @@ function App() {
   if (subView === "challenges") {
     return <ChallengesScreen onClose={() => setSubView(null)} />;
   }
-  if (subView === "coach") {
-    return <CoachPortal onExit={() => setSubView(null)} />;
+  if (subView === "coach" && session) {
+    return <CoachPortal onExit={() => setSubView(null)} userId={session.user.id} isAdmin={profileRole === "admin"} />;
   }
 
   // Header component
@@ -4057,28 +4067,30 @@ function App() {
                 </div>
               </Card>
 
-              <button
-                onClick={() => setSubView("coach")}
-                style={{
-                  width: "100%", padding: "16px", borderRadius: radii.card,
-                  background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
-                  display: "flex", alignItems: "center", gap: "12px",
-                  cursor: "pointer", fontFamily: "inherit", marginBottom: "4px",
-                }}
-              >
-                <div style={{
-                  width: "40px", height: "40px", borderRadius: "10px", flexShrink: 0,
-                  background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <Users size={20} color={c.accent} />
-                </div>
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={{ fontSize: "15px", fontWeight: 600, color: c.text }}>Coach Portal</div>
-                  <div style={{ fontSize: "12px", color: c.muted, marginTop: "2px" }}>View member progress · PIN protected</div>
-                </div>
-                <ChevronRight size={16} color={c.muted2} />
-              </button>
+              {profileRole === "admin" && (
+                <button
+                  onClick={() => setSubView("coach")}
+                  style={{
+                    width: "100%", padding: "16px", borderRadius: radii.card,
+                    background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
+                    display: "flex", alignItems: "center", gap: "12px",
+                    cursor: "pointer", fontFamily: "inherit", marginBottom: "4px",
+                  }}
+                >
+                  <div style={{
+                    width: "40px", height: "40px", borderRadius: "10px", flexShrink: 0,
+                    background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Users size={20} color={c.accent} />
+                  </div>
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontSize: "15px", fontWeight: 600, color: c.text }}>Coach Portal</div>
+                    <div style={{ fontSize: "12px", color: c.muted, marginTop: "2px" }}>View member progress</div>
+                  </div>
+                  <ChevronRight size={16} color={c.muted2} />
+                </button>
+              )}
 
               <PrimaryButton onClick={() => supabase.auth.signOut()}>Logout</PrimaryButton>
             </div>

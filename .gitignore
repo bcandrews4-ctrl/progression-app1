@@ -16,6 +16,11 @@ dist-electron/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code / Cursor internals
+.claude/
+.mcp.json
+CURSOR_PROMPTS_EXACT.md
 *.swp
 *.swo
 *~
