@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal, Bell, Users, ChevronRight } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal, Bell, Users, ChevronRight, Play, RotateCcw, Timer, Calculator } from "lucide-react";
 
 import {
   LineChart,
@@ -22,10 +22,13 @@ import {
   updateProfile,
   fetchLifts,
   insertLift,
+  deleteLift,
   fetchCardio,
   insertCardio,
+  deleteCardio,
   fetchRuns,
   insertRun,
+  deleteRun,
   fetchImported,
   fetchHealth,
 } from "./lib/db";
@@ -47,7 +50,6 @@ import { BottomSheet } from "./components/BottomSheet";
 import { PlateCalculator } from "./components/PlateCalculator";
 import { RestTimer } from "./components/RestTimer";
 import { useTheme } from "./hooks/useTheme";
-import { DesignPreview } from "./components/DesignPreview";
 import { ReadinessCard } from "./components/ReadinessCard";
 import { DeviceSyncStrip } from "./components/DeviceSyncStrip";
 import { CommunityFeed } from "./components/CommunityFeed";
@@ -82,7 +84,7 @@ type CardioMachine = "RowErg" | "BikeErg" | "SkiErg" | "Assault Bike";
 
 type JournalTab = "All" | "Lifts" | "Cardio" | "Running";
 
-type DateRange = "30" | "90" | "365";
+type DateRange = "7" | "30" | "90" | "365";
 
 type AppTab = "Train" | "Progress" | "Body" | "Badges" | "Profile";
 type SubView = "workout" | "summary" | "challenges" | "coach" | null;
@@ -1251,9 +1253,10 @@ function App() {
   const [profileTrainingFocus, setProfileTrainingFocus] = useState<TrainingFocus | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState<boolean>(false);
   const [profileRole, setProfileRole] = useState<string>("member");
+  const [profileDisplayName, setProfileDisplayName] = useState<string>("Member");
   const [profileLoading, setProfileLoading] = useState(false);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
-  const [range, setRange] = useState<DateRange>("90");
+  const [range, setRange] = useState<DateRange>("30");
 
   const [lifts, setLifts] = useState<LiftEntry[]>(emptyData.lifts);
   const [cardio, setCardio] = useState<CardioEntry[]>(emptyData.cardio);
@@ -1290,18 +1293,11 @@ function App() {
   const [showRestSheet, setShowRestSheet] = useState(false);
   const [showPlateSheet, setShowPlateSheet] = useState(false);
   const [hideDeloadBanner, setHideDeloadBanner] = useState(false);
-  const [designPreviewOpen, setDesignPreviewOpen] = useState(
-    () => import.meta.env.DEV && localStorage.getItem("hh_design_preview") === "1",
-  );
   const [stravaConnection, setStravaConnection] = useState<{ athlete_name: string; last_sync_at: string } | null>(null);
   const [stravaActivities, setStravaActivities] = useState<Array<{ id: string; type: string; start_date: string; name?: string; distance_m?: number; moving_time: number; calories?: number; average_heartrate?: number }>>([]);
   const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
   const [stravaLoading, setStravaLoading] = useState(false);
 
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    localStorage.setItem("hh_design_preview", designPreviewOpen ? "1" : "0");
-  }, [designPreviewOpen]);
 
   // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
   useEffect(() => {
@@ -1466,6 +1462,7 @@ function App() {
           setProfileTrainingFocus(profile.training_focus);
           setOnboardingComplete(profile.onboarding_complete);
           setProfileRole(profile.role ?? "member");
+          setProfileDisplayName(profile.display_name ?? "Member");
           if (profile.training_focus) setFocus(profile.training_focus);
         } else {
           // Profile row created by trigger — just set defaults
@@ -1520,6 +1517,16 @@ function App() {
     }
   }, []);
 
+  // Serialise current state for saving to profiles.data
+  const buildUserData = () => ({
+    focus,
+    lifts,
+    cardio,
+    runs,
+    imported,
+    health: healthData,
+  });
+
   // Auto-save profile data on changes
   useEffect(() => {
     if (devBypassAuth) return;
@@ -1531,8 +1538,9 @@ function App() {
       window.clearTimeout(saveTimeoutRef.current);
     }
 
+    const snapshot = buildUserData();
     saveTimeoutRef.current = window.setTimeout(async () => {
-      await supabase.from("profiles").update({ data: buildUserData() }).eq("id", userId);
+      await supabase.from("profiles").update({ data: snapshot }).eq("id", userId);
     }, 800);
 
     return () => {
@@ -1668,6 +1676,7 @@ function App() {
   }, [selectedRunDistance]);
 
   const rangeDays = useMemo(() => {
+    if (range === "7") return 7;
     if (range === "30") return 30;
     if (range === "90") return 90;
     return 365;
@@ -1700,6 +1709,52 @@ function App() {
       activeCals,
     };
   }, [lifts, cardio, runs, imported, rangeDays]);
+
+  const streakData = useMemo(() => {
+    // Build a set of all dates that had any training activity
+    const trainedDates = new Set<string>([
+      ...lifts.map((lft) => lft.dateISO),
+      ...cardio.map((crd) => crd.dateISO),
+      ...runs.map((run) => run.dateISO),
+    ]);
+
+    // Build the Mon–Sun week containing today
+    const today = new Date();
+    // getDay(): Sun=0 Mon=1 … Sat=6 → convert to Mon=0 … Sun=6
+    const dayOfWeek = (today.getDay() + 6) % 7;
+    const weekDates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - dayOfWeek + i);
+      weekDates.push(d.toISOString().slice(0, 10));
+    }
+
+    const completedDays = weekDates.map((d) => trainedDates.has(d));
+    const todayIndex = dayOfWeek;
+
+    // Consecutive-day streak going backwards from today
+    // If today has no training yet, still count from yesterday
+    const todayISO = today.toISOString().slice(0, 10);
+    let streak = 0;
+    const startOffset = trainedDates.has(todayISO) ? 0 : 1;
+    for (let i = startOffset; i <= 365; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      if (trainedDates.has(d.toISOString().slice(0, 10))) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    const streakSub = streak === 0
+      ? "Log a workout to start your streak."
+      : streak === 1
+      ? "1 day — keep it going!"
+      : `${streak} days straight — keep it up!`;
+
+    return { completedDays, todayIndex, streakCount: streak, streakSub };
+  }, [lifts, cardio, runs]);
 
   const readinessScore = useMemo(() => {
     const latest = healthData[0];
@@ -2004,6 +2059,10 @@ function App() {
     setLifts((prev) => [entry, ...prev]);
     if (session?.user?.id) insertLift(session.user.id, entry).catch(console.error);
     setModal(null);
+    setLiftWeight("");
+    setLiftReps("");
+    setLiftRPE(null);
+    setLiftDate(todayISO());
   }
 
   function addCardio() {
@@ -2022,6 +2081,9 @@ function App() {
     setCardio((prev) => [entry, ...prev]);
     if (session?.user?.id) insertCardio(session.user.id, entry).catch(console.error);
     setModal(null);
+    setCardioCalories("");
+    setCardioSeconds("60");
+    setCardioDate(todayISO());
   }
 
   function addRun() {
@@ -2058,21 +2120,27 @@ function App() {
     setRuns((prev) => [entry, ...prev]);
     if (session?.user?.id) insertRun(session.user.id, entry).catch(console.error);
     setModal(null);
+    setRunTime("3:45");
+    setRunPace("4:45");
+    setRunDate(todayISO());
   }
 
   function deleteLiftEntry(entryId: string) {
     if (!confirm("Delete this lift entry?")) return;
     setLifts((prev) => prev.filter((entry) => entry.id !== entryId));
+    if (session?.user?.id) deleteLift(session.user.id, entryId).catch(console.error);
   }
 
   function deleteCardioEntry(entryId: string) {
     if (!confirm("Delete this cardio entry?")) return;
     setCardio((prev) => prev.filter((entry) => entry.id !== entryId));
+    if (session?.user?.id) deleteCardio(session.user.id, entryId).catch(console.error);
   }
 
   function deleteRunEntry(entryId: string) {
     if (!confirm("Delete this run entry?")) return;
     setRuns((prev) => prev.filter((entry) => entry.id !== entryId));
+    if (session?.user?.id) deleteRun(session.user.id, entryId).catch(console.error);
   }
 
   async function copyUserId() {
@@ -2722,17 +2790,47 @@ function App() {
     return <FullScreenLoader message="Loading..." />;
   }
 
-  if (designPreviewOpen) {
-    return <DesignPreview onExit={() => setDesignPreviewOpen(false)} />;
-  }
+
 
   // SubView full-screen routing (hides tab bar)
   if (subView === "workout") {
     return (
       <WorkoutTracker
         accentColor={c.accent}
+        liftHistory={lifts}
         onBack={() => setSubView(null)}
-        onFinish={(data) => { setSummaryData(data); setSubView("summary"); }}
+        onFinish={async (data) => {
+          // Save one entry per exercise (the best e1RM set) so Progress shows
+          // one data point per workout, not one row per set.
+          if (session?.user?.id && data.completedSets?.length) {
+            const today = new Date().toISOString().slice(0, 10);
+            // Group sets by exercise
+            const byExercise = new Map<string, typeof data.completedSets[0]>();
+            for (const s of data.completedSets) {
+              const prev = byExercise.get(s.exercise);
+              const e1rm = (w: number, r: number) => w * (1 + r / 30);
+              if (!prev || e1rm(s.weightKg, s.reps) > e1rm(prev.weightKg, prev.reps)) {
+                byExercise.set(s.exercise, s);
+              }
+            }
+            await Promise.all(
+              Array.from(byExercise.values()).map((s) =>
+                insertLift(session.user.id, {
+                  id: crypto.randomUUID(),
+                  dateISO: today,
+                  lift: s.exercise,
+                  weightKg: s.weightKg,
+                  reps: s.reps,
+                  ...(s.rpe != null ? { rpe: s.rpe } : {}),
+                }).catch(console.error)
+              )
+            );
+            // Refresh lifts so the Progress tab updates immediately
+            fetchLifts(session.user.id).then(setLifts).catch(console.error);
+          }
+          setSummaryData(data);
+          setSubView("summary");
+        }}
       />
     );
   }
@@ -2835,6 +2933,7 @@ function App() {
                   value={range}
                   setValue={setRange}
                   options={[
+                    { label: "7d", value: "7" },
                     { label: "30d", value: "30" },
                     { label: "90d", value: "90" },
                     { label: "Year", value: "365" },
@@ -2863,7 +2962,12 @@ function App() {
                 </GlassCard>
               ) : null}
 
-              <StreakCard completedCount={6} todayIndex={6} streakLabel="7 day consistency" streakSub="Keep it up — best yet." />
+              <StreakCard
+                completedDays={streakData.completedDays}
+                todayIndex={streakData.todayIndex}
+                streakCount={streakData.streakCount}
+                streakSub={streakData.streakSub}
+              />
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "16px" }}>
                 <StatTile label="Workouts" value={`${stats.workouts}`} accent />
@@ -2874,8 +2978,6 @@ function App() {
                 <StatTile label="Active cals" value={`${stats.activeCals}`} />
               </div>
 
-              <JumpBackInCard title="Bench Press" meta="Last session: 92.5 kg × 4" onResume={() => setSubView("workout")} />
-
               <GymChallengesCard
                 rankText="You're #4 in Volume King"
                 detailText="2 workouts behind #3 this week"
@@ -2883,7 +2985,7 @@ function App() {
               />
 
               <DeviceSyncStrip stravaConnected={Boolean(stravaConnection)} />
-              <CommunityFeed />
+              <CommunityFeed userId={session!.user.id} userName={profileDisplayName} />
             </div>
           ) : null}
 
@@ -4106,66 +4208,62 @@ function App() {
         centered
         maxWidth="sm:max-w-md"
       >
-        <div className="flex flex-col items-center gap-4">
-          <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
-            onClick={() => setModal({ type: "LIFT" })}
-          >
-            <div className="text-sm font-semibold" style={{ color: TEXT }}>
-              Add lift top set
-            </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              Weight + reps
-            </div>
-          </button>
-          <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
-            onClick={() => setModal({ type: "CARDIO" })}
-          >
-            <div className="text-sm font-semibold" style={{ color: TEXT }}>
-              Add cardio effort
-            </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              Default: max calories in 60 seconds
-            </div>
-          </button>
-          <button
-            className="w-full px-4 py-3.5 text-left transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
-            style={{ borderRadius: radii.input, background: c.cardBg2, border: `1px solid ${c.border}` }}
-            onClick={() => setModal({ type: "RUN" })}
-          >
-            <div className="text-sm font-semibold" style={{ color: TEXT }}>
-              Add run
-            </div>
-            <div className="text-xs mt-1" style={{ color: MUTED }}>
-              Distance + time or pace
-            </div>
-          </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {[
+            {
+              type: "LIFT" as const,
+              icon: <Dumbbell size={20} color="#fff" />,
+              iconBg: ACCENT,
+              title: "Log lift top set",
+              sub: "Weight · reps · RPE",
+            },
+            {
+              type: "CARDIO" as const,
+              icon: <Zap size={20} color="#fff" />,
+              iconBg: "#f97316",
+              title: "Log cardio effort",
+              sub: "Calories · machine · time",
+            },
+            {
+              type: "RUN" as const,
+              icon: <Footprints size={20} color="#fff" />,
+              iconBg: "#22c55e",
+              title: "Log a run",
+              sub: "Distance · time or pace",
+            },
+          ].map(({ type, icon, iconBg, title, sub }) => (
+            <button
+              key={type}
+              onClick={() => setModal({ type })}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "14px",
+                padding: "14px 16px", textAlign: "left",
+                borderRadius: "18px", background: c.cardBg2,
+                border: `1px solid ${c.border}`, cursor: "pointer",
+                transition: "transform 150ms, border-color 150ms",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = c.borderMid; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = c.border; }}
+              onMouseDown={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(0.97)"; }}
+              onMouseUp={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+            >
+              <div style={{
+                width: "42px", height: "42px", borderRadius: "12px",
+                background: iconBg, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                {icon}
+              </div>
+              <div>
+                <div style={{ fontSize: "15px", fontWeight: 600, color: TEXT, lineHeight: 1.3 }}>{title}</div>
+                <div style={{ fontSize: "12px", color: MUTED, marginTop: "3px" }}>{sub}</div>
+              </div>
+              <ChevronRight size={16} color={MUTED} style={{ marginLeft: "auto", flexShrink: 0 }} />
+            </button>
+          ))}
         </div>
       </Modal>
 
-      {import.meta.env.DEV ? (
-        <button
-          onClick={() => setDesignPreviewOpen(true)}
-          style={{
-            position: "fixed",
-            left: "12px",
-            bottom: "80px",
-            zIndex: 65,
-            borderRadius: "999px",
-            border: `1px solid ${BORDER}`,
-            background: CARD2,
-            color: TEXT,
-            fontSize: "11px",
-            fontWeight: 600,
-            padding: "8px 12px",
-          }}
-        >
-          Preview v2
-        </button>
-      ) : null}
 
       {/* Lift modal */}
       <Modal
@@ -4393,7 +4491,7 @@ function App() {
         style={{
           position: "fixed",
           right: "16px",
-          bottom: "80px",
+          bottom: "calc(var(--tabbar-h, 84px) + var(--tabbar-bottom-offset, 6px) + env(safe-area-inset-bottom, 0px) + 14px)",
           width: "52px",
           height: "52px",
           borderRadius: "999px",
@@ -4403,27 +4501,142 @@ function App() {
           zIndex: 60,
           fontSize: "26px",
           lineHeight: 1,
+          display: showQuickStartSheet ? "none" : "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
         +
       </button>
 
       <BottomSheet open={showQuickStartSheet} onClose={() => setShowQuickStartSheet(false)} title="Start workout">
-        <div className="space-y-2">
-          <PrimaryButton onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}>Start from scratch</PrimaryButton>
-          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}>
-            Resume last session
-          </PrimaryButton>
-          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setShowRestSheet(true); }}>
-            Rest timer
-          </PrimaryButton>
-          <PrimaryButton variant="outline" onClick={() => { setShowQuickStartSheet(false); setShowPlateSheet(true); }}>
-            Plate calculator
-          </PrimaryButton>
-          <PrimaryButton variant="ghost" onClick={() => { setShowQuickStartSheet(false); showToast("Programs coming soon"); }}>
-            From program
-          </PrimaryButton>
-        </div>
+        {(() => {
+          const allWorkouts = [
+            ...lifts.map((l) => ({ dateISO: l.dateISO, label: l.lift })),
+            ...cardio.map((c) => ({ dateISO: c.dateISO, label: c.machine })),
+            ...runs.map((r) => ({ dateISO: r.dateISO, label: `${r.distanceMeters}m run` })),
+            ...imported.map((w) => ({ dateISO: w.dateISO, label: w.workoutType ?? w.source ?? "Workout" })),
+          ].sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
+          const lastSession = allWorkouts[0];
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {/* Start from Scratch — hero card */}
+              <button
+                onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}
+                style={{
+                  width: "100%", padding: "18px 20px", textAlign: "left",
+                  borderRadius: "20px", cursor: "pointer",
+                  background: `linear-gradient(135deg, ${ACCENT}22 0%, ${ACCENT}08 100%)`,
+                  border: `1px solid ${ACCENT}55`,
+                  transition: "transform 150ms, border-color 150ms",
+                  display: "flex", alignItems: "center", gap: "16px",
+                }}
+                onMouseDown={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(0.97)"; }}
+                onMouseUp={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+              >
+                <div style={{
+                  width: "48px", height: "48px", borderRadius: "14px",
+                  background: ACCENT, flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Play size={22} color="#fff" fill="#fff" />
+                </div>
+                <div>
+                  <div style={{ fontSize: "16px", fontWeight: 700, color: TEXT, lineHeight: 1.3 }}>Start from scratch</div>
+                  <div style={{ fontSize: "12px", color: MUTED, marginTop: "3px" }}>New empty workout</div>
+                </div>
+              </button>
+
+              {/* Resume Last Session */}
+              <button
+                onClick={() => { setShowQuickStartSheet(false); setSubView("workout"); }}
+                style={{
+                  width: "100%", padding: "16px 20px", textAlign: "left",
+                  borderRadius: "20px", cursor: "pointer",
+                  background: c.cardBg2,
+                  border: `1px solid ${c.border}`,
+                  transition: "transform 150ms, border-color 150ms",
+                  display: "flex", alignItems: "center", gap: "16px",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = c.borderMid; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = c.border; }}
+                onMouseDown={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(0.97)"; }}
+                onMouseUp={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+              >
+                <div style={{
+                  width: "48px", height: "48px", borderRadius: "14px",
+                  background: "rgba(255,255,255,0.07)", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <RotateCcw size={20} color={TEXT} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "15px", fontWeight: 600, color: TEXT, lineHeight: 1.3 }}>Resume last session</div>
+                  {lastSession ? (
+                    <div style={{ fontSize: "12px", color: MUTED, marginTop: "3px" }}>
+                      {lastSession.label} · {lastSession.dateISO}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "12px", color: MUTED, marginTop: "3px" }}>No previous session found</div>
+                  )}
+                </div>
+              </button>
+
+              {/* Tools row: Timer + Plate Calc */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                {[
+                  {
+                    icon: <Timer size={20} color={TEXT} />,
+                    label: "Rest timer",
+                    onClick: () => { setShowQuickStartSheet(false); setShowRestSheet(true); },
+                  },
+                  {
+                    icon: <Calculator size={20} color={TEXT} />,
+                    label: "Plate calc",
+                    onClick: () => { setShowQuickStartSheet(false); setShowPlateSheet(true); },
+                  },
+                ].map(({ icon, label, onClick }) => (
+                  <button
+                    key={label}
+                    onClick={onClick}
+                    style={{
+                      padding: "14px 12px", borderRadius: "16px", cursor: "pointer",
+                      background: c.cardBg2, border: `1px solid ${c.border}`,
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: "8px",
+                      transition: "transform 150ms",
+                    }}
+                    onMouseDown={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(0.96)"; }}
+                    onMouseUp={(e) => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                  >
+                    {icon}
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: TEXT }}>{label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* From program — coming soon */}
+              <button
+                disabled
+                onClick={() => { setShowQuickStartSheet(false); showToast("Programs coming soon"); }}
+                style={{
+                  width: "100%", padding: "14px 20px",
+                  borderRadius: "16px", cursor: "not-allowed",
+                  background: "transparent", border: `1px solid ${c.border}`,
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  opacity: 0.5,
+                }}
+              >
+                <span style={{ fontSize: "14px", fontWeight: 500, color: TEXT }}>From program</span>
+                <span style={{
+                  fontSize: "10px", fontWeight: 700, color: ACCENT,
+                  background: `${ACCENT}22`, border: `1px solid ${ACCENT}44`,
+                  borderRadius: "999px", padding: "2px 8px", letterSpacing: "0.05em",
+                }}>SOON</span>
+              </button>
+            </div>
+          );
+        })()}
       </BottomSheet>
 
       <BottomSheet open={showRestSheet} onClose={() => setShowRestSheet(false)} title="Rest timer">

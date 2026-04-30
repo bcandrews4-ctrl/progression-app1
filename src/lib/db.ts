@@ -76,6 +76,7 @@ export type AdminMemberData = {
   lifts: LiftEntry[];
   cardio: CardioEntry[];
   runs: RunEntry[];
+  imported: ImportedWorkout[];
 };
 
 export type AdminDashboardData = {
@@ -90,15 +91,18 @@ export type AdminDashboardData = {
 export async function fetchProfile(userId: string) {
   const { data, error } = await supabase
     .from('profiles')
-    .select('training_focus, onboarding_complete, role')
+    .select('training_focus, onboarding_complete, role, data, email')
     .eq('id', userId)
     .single();
 
   if (error || !data) return null;
+  const nameFromData = (data.data as { name?: string } | null)?.name ?? null;
+  const nameFromEmail = typeof data.email === "string" ? data.email.split("@")[0] : null;
   return {
     training_focus: data.training_focus as TrainingFocus | null,
     onboarding_complete: data.onboarding_complete as boolean,
     role: (data.role as string | null) ?? "member",
+    display_name: nameFromData ?? nameFromEmail ?? "Member",
   };
 }
 
@@ -148,6 +152,11 @@ export async function insertLift(userId: string, entry: LiftEntry) {
   if (error) throw error;
 }
 
+export async function deleteLift(userId: string, liftId: string) {
+  const { error } = await supabase.from('lifts').delete().eq('id', liftId).eq('user_id', userId);
+  if (error) throw error;
+}
+
 // ---------------------------------------------------------------------------
 // Cardio
 // ---------------------------------------------------------------------------
@@ -178,6 +187,11 @@ export async function insertCardio(userId: string, entry: CardioEntry) {
     seconds: entry.seconds,
     calories: entry.calories,
   });
+  if (error) throw error;
+}
+
+export async function deleteCardio(userId: string, cardioId: string) {
+  const { error } = await supabase.from('cardio_entries').delete().eq('id', cardioId).eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -215,6 +229,11 @@ export async function insertRun(userId: string, entry: RunEntry) {
     pace_sec_per_km: entry.paceSecPerKm ?? null,
     rounds: entry.rounds,
   });
+  if (error) throw error;
+}
+
+export async function deleteRun(userId: string, runId: string) {
+  const { error } = await supabase.from('run_entries').delete().eq('id', runId).eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -363,12 +382,16 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
   const cardioQuery = supabase
     .from('cardio_entries')
     .select('user_id, id, date_iso, machine, seconds, calories');
+  const importedQuery = supabase
+    .from('imported_workouts')
+    .select('user_id, id, date_iso, source, workout_type, minutes, active_calories, distance_km');
 
-  const [profilesRes, liftsRes, runsRes, cardioRes] = await Promise.all([
+  const [profilesRes, liftsRes, runsRes, cardioRes, importedRes] = await Promise.all([
     supabase.from('profiles').select('id, email, training_focus, role, data'),
     cutoffISO ? liftsQuery.gte('date_iso', cutoffISO) : liftsQuery,
     cutoffISO ? runsQuery.gte('date_iso', cutoffISO) : runsQuery,
     cutoffISO ? cardioQuery.gte('date_iso', cutoffISO) : cardioQuery,
+    cutoffISO ? importedQuery.gte('date_iso', cutoffISO) : importedQuery,
   ]);
 
   if (profilesRes.error || liftsRes.error || runsRes.error || cardioRes.error) {
@@ -380,6 +403,7 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
       liftsError: liftsRes.error?.message ?? null,
       runsError: runsRes.error?.message ?? null,
       cardioError: cardioRes.error?.message ?? null,
+      importedError: importedRes.error?.message ?? null,
     });
 
     const firstError = profilesRes.error ?? liftsRes.error ?? runsRes.error ?? cardioRes.error;
@@ -396,6 +420,7 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
     lifts: (liftsRes.data ?? []).length,
     runs: (runsRes.data ?? []).length,
     cardio: (cardioRes.data ?? []).length,
+    imported: (importedRes.data ?? []).length,
   });
 
   const members: AdminMemberSummary[] = (profilesRes.data ?? [])
@@ -417,12 +442,14 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
   const lifts = (liftsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
   const runs = (runsRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
   const cardio = (cardioRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
+  const importedRows = (importedRes.data ?? []).filter((r) => memberMap.has(r.user_id as string));
   const memberData: Record<string, AdminMemberData> = {};
   for (const member of members) {
     memberData[member.userId] = {
       lifts: [],
       cardio: [],
       runs: [],
+      imported: [],
     };
   }
 
@@ -486,8 +513,65 @@ export async function fetchAdminDashboardData(userId: string, rangeDays: 30 | 90
     });
   }
 
+  for (const row of importedRows) {
+    const user = row.user_id as string;
+    if (!memberData[user]) continue;
+    const dateISO = toDateISO(String((row as { date_iso?: string }).date_iso ?? ""));
+    if (!dateISO) continue;
+    const minutesRaw = parseNumeric((row as { minutes?: unknown }).minutes);
+    const calsRaw = parseNumeric((row as { active_calories?: unknown }).active_calories);
+    const distKmRaw = parseNumeric((row as { distance_km?: unknown }).distance_km);
+    memberData[user].imported.push({
+      id: String((row as { id?: string }).id ?? `admin-imp-${user}-${dateISO}`),
+      dateISO,
+      source: String((row as { source?: string }).source ?? ""),
+      workoutType: String((row as { workout_type?: string }).workout_type ?? ""),
+      minutes: Math.max(0, Math.round(minutesRaw ?? 0)),
+      ...(calsRaw != null ? { activeCalories: Math.round(calsRaw) } : {}),
+      ...(distKmRaw != null ? { distanceKm: distKmRaw } : {}),
+    });
+  }
+
   return {
     members,
     memberData,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Community posts
+// ---------------------------------------------------------------------------
+
+export type CommunityPost = {
+  id: string;
+  userId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+};
+
+export async function fetchCommunityPosts(): Promise<CommunityPost[]> {
+  const { data, error } = await supabase
+    .from('community_posts')
+    .select('id, user_id, author_name, body, created_at')
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (error) { console.error('fetchCommunityPosts error:', error); return []; }
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    authorName: r.author_name,
+    body: r.body,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function insertCommunityPost(userId: string, authorName: string, body: string): Promise<void> {
+  const { error } = await supabase.from('community_posts').insert({
+    user_id: userId,
+    author_name: authorName,
+    body: body.trim(),
+  });
+  if (error) throw error;
 }

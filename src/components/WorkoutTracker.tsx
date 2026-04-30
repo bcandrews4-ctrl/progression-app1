@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { radii } from "../styles/tokens";
 import { useTheme } from "../hooks/useTheme";
 import { BottomSheet } from "./BottomSheet";
 import { AreaChart } from "./AreaChart";
 import { Toggle } from "./Toggle";
-import { WorkoutSummaryData } from "./WorkoutSummary";
+import { WorkoutSummaryData, CompletedSet } from "./WorkoutSummary";
+import { LiftEntry } from "../lib/db";
 import { ChevronLeft, ChevronRight, Zap, Plus, Check, BarChart2, ChevronDown, RotateCcw } from "lucide-react";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -199,32 +200,26 @@ function PlateViz({ plates, sideKg, barKg, accent }: {
 }
 
 // ── Main WorkoutTracker ────────────────────────────────────────────────────
-const CHART_DATA = [
-  { label: "Apr 3", value: 138 }, { label: "Apr 7", value: 142 },
-  { label: "Apr 11", value: 145 }, { label: "Apr 14", value: 148 },
-  { label: "Apr 17", value: 151 }, { label: "Apr 19", value: 155 },
-  { label: "Apr 21", value: 158 }, { label: "Apr 22", value: 162.5 },
+const EXERCISES = [
+  "Bench Press", "Back Squat", "Deadlift", "Overhead Press", "Romanian Deadlift",
+  "Barbell Row", "Incline Bench", "Pull-ups", "Dips", "Leg Press", "Leg Curl",
+  "Calf Raise", "Cable Row", "Lat Pulldown", "Face Pulls",
+  "Cardio – Bike", "Cardio – Rower", "Run",
 ];
-const PREV_BEST = { e1rm: 178 };
-
-const EXERCISES = ["Back Squat", "Romanian Deadlift", "Leg Press", "Leg Curl", "Calf Raise"];
 
 interface WorkoutTrackerProps {
   onBack: () => void;
   onFinish: (data: WorkoutSummaryData) => void;
   accentColor?: string;
+  liftHistory?: LiftEntry[];
 }
 
-export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTrackerProps) {
+export function WorkoutTracker({ onBack, onFinish, accentColor, liftHistory = [] }: WorkoutTrackerProps) {
   const { c } = useTheme();
   const accent = accentColor || c.accent;
 
-  const [sets, setSets] = useState<SetData[]>([
-    { id: 1, weight: "140", reps: "5", rir: "2", done: true },
-    { id: 2, weight: "150", reps: "5", rir: "2", done: true },
-    { id: 3, weight: "160", reps: "3", rir: "1", done: true },
-    { id: 4, weight: "162.5", reps: "", rir: "", done: false },
-  ]);
+  const [currentExercise, setCurrentExercise] = useState<string | null>(null);
+  const [sets, setSets] = useState<SetData[]>([]);
   const [showRIR, setShowRIR] = useState(true);
   const [timerOpen, setTimerOpen] = useState(false);
   const [timerSec, setTimerSec] = useState(90);
@@ -233,11 +228,17 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
   const [pulsing, setPulsing] = useState(false);
   const [plateOpen, setPlateOpen] = useState(false);
   const [plateTarget, setPlateTarget] = useState(162.5);
+  const [plateBarKg, setPlateBarKg] = useState(20);
   const [prOpen, setPrOpen] = useState(false);
   const [prData, setPrData] = useState<{ weight: number; reps: number; e1rm: number; prev: number } | null>(null);
   const [jumpOpen, setJumpOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const intervalRef = useRef<number | null>(null);
+
+  // Auto-open exercise picker if none selected
+  useEffect(() => {
+    if (!currentExercise) setJumpOpen(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Workout timer
   useEffect(() => {
@@ -280,8 +281,12 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
       if (set && set.weight && set.reps) {
         const w = parseFloat(set.weight), r = parseInt(set.reps);
         const e = calcE1RM(w, r);
-        if (e > PREV_BEST.e1rm) {
-          setPrData({ weight: w, reps: r, e1rm: e, prev: PREV_BEST.e1rm });
+        // Track session-best e1RM and surface PR modal if it beats a personal best
+        const sessionBest = updated
+          .filter((s) => s.done && s.weight && s.reps)
+          .reduce((best, s) => Math.max(best, calcE1RM(parseFloat(s.weight), parseInt(s.reps))), 0);
+        if (e > sessionBest * 1.01) {
+          setPrData({ weight: w, reps: r, e1rm: e, prev: sessionBest });
           setTimeout(() => setPrOpen(true), 400);
         }
       }
@@ -296,25 +301,63 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
   };
 
   const nextSet = sets.find((s) => !s.done);
-  const suggestion = nextSet ? { weight: "165", reps: "3", note: "+2.5kg from last time" } : null;
   const allDone = sets.every((s) => s.done);
+
+  // e1RM trend: all historical sets for the selected exercise, sorted by date
+  const chartData = useMemo(() => {
+    if (!currentExercise) return [];
+    return liftHistory
+      .filter((l) => l.lift.toLowerCase() === currentExercise.toLowerCase())
+      .sort((a, b) => a.dateISO.localeCompare(b.dateISO))
+      .map((l) => ({ label: l.dateISO.slice(5).replace("-", "/"), value: calcE1RM(l.weightKg, l.reps) }));
+  }, [currentExercise, liftHistory]);
+
+  // Last recorded set for this exercise → drives weight suggestion
+  const lastLift = useMemo(() => {
+    if (!currentExercise) return null;
+    return liftHistory
+      .filter((l) => l.lift.toLowerCase() === currentExercise.toLowerCase())
+      .sort((a, b) => b.dateISO.localeCompare(a.dateISO))[0] ?? null;
+  }, [currentExercise, liftHistory]);
+
+  const suggestion = useMemo(() => {
+    if (!nextSet || !lastLift) return null;
+    const suggestedWeight = +(lastLift.weightKg + 2.5).toFixed(2);
+    // Strip unnecessary trailing zeroes (e.g. 102.50 → 102.5)
+    const weightStr = String(parseFloat(suggestedWeight.toFixed(2)));
+    return {
+      weight: weightStr,
+      reps: String(lastLift.reps),
+      note: `+2.5kg from last time (${lastLift.weightKg}kg × ${lastLift.reps})`,
+    };
+  }, [nextSet, lastLift]);
   const sessionVol = sets.filter((s) => s.done && s.weight && s.reps).reduce((acc, s) => acc + parseFloat(s.weight) * parseInt(s.reps), 0);
   const doneSets = sets.filter((s) => s.done).length;
   const pct = (timerSec / timerMax) * 100;
-  const r = 44, circ = 2 * Math.PI * r;
-  const plateCalc = calcPlates(plateTarget);
+  const r = 54, circ = 2 * Math.PI * r;
+  const timerLow = timerSec <= 30 && timerActive;
+  const plateCalc = calcPlates(plateTarget, plateBarKg);
 
   const handleFinish = () => {
+    const exName = currentExercise ?? "Workout";
+    const doneSetsData = sets.filter((s) => s.done && s.weight && s.reps);
+    const topSet = doneSetsData.sort((a, b) => parseFloat(b.weight) - parseFloat(a.weight))[0];
+    const topSetStr = topSet ? `${topSet.weight}kg × ${topSet.reps}` : "—";
+
+    const completedSets: CompletedSet[] = doneSetsData.map((s) => ({
+      exercise: exName,
+      weightKg: parseFloat(s.weight),
+      reps: parseInt(s.reps),
+      ...(s.rir ? { rpe: Math.max(0, 10 - parseInt(s.rir)) } : {}),
+    }));
+
     onFinish({
       duration: fmt(elapsed),
       totalVolume: `${(sessionVol / 1000).toFixed(2)}t`,
       sets: doneSets,
-      prs: prData ? [{ lift: "Back Squat", weight: prData.weight, reps: prData.reps, e1rm: prData.e1rm }] : [],
-      exercises: [
-        { name: "Back Squat", sets: doneSets, topSet: "162.5kg × 3" },
-        { name: "Romanian Deadlift", sets: 4, topSet: "120kg × 8" },
-        { name: "Leg Press", sets: 3, topSet: "200kg × 10" },
-      ],
+      prs: prData ? [{ lift: exName, weight: prData.weight, reps: prData.reps, e1rm: prData.e1rm }] : [],
+      exercises: doneSets > 0 ? [{ name: exName, sets: doneSets, topSet: topSetStr }] : [],
+      completedSets,
     });
   };
 
@@ -335,11 +378,17 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
           <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: c.muted, display: "flex", padding: "4px", fontFamily: "inherit" }}>
             <ChevronLeft size={20} color={c.muted} />
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", color: c.muted }}>
+          <button
+            onClick={() => setJumpOpen(true)}
+            style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", color: c.muted, padding: 0, fontFamily: "inherit" }}
+          >
             <span>Train</span>
             <ChevronRight size={14} color={c.muted2} />
-            <span style={{ color: c.text, fontWeight: 600 }}>Back Squat</span>
-          </div>
+            <span style={{ color: currentExercise ? c.text : accent, fontWeight: 600 }}>
+              {currentExercise ?? "Select exercise"}
+            </span>
+            <ChevronDown size={13} color={c.muted2} />
+          </button>
           <div style={{ marginLeft: "auto", display: "flex", gap: "8px", alignItems: "center" }}>
             <div style={{ fontSize: "12px", color: c.muted, fontWeight: 500 }}>{fmt(elapsed)}</div>
             <div style={{
@@ -362,16 +411,47 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 100px" }}>
-        {/* e1RM chart */}
+        {/* e1RM chart / exercise selector prompt */}
         <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "12px 12px 8px", marginBottom: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: c.muted2, textTransform: "uppercase", letterSpacing: "0.06em" }}>e1RM trend</div>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>+3.2%</div>
-              <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>8 sessions</div>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: c.muted2, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {currentExercise ? `e1RM trend — ${currentExercise}` : "e1RM trend"}
             </div>
+            {chartData.length >= 2 && (() => {
+              const first = chartData[0].value;
+              const last = chartData[chartData.length - 1].value;
+              const pctChange = (((last - first) / first) * 100).toFixed(1);
+              const up = last >= first;
+              return (
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
+                    {up ? "+" : ""}{pctChange}%
+                  </div>
+                  <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
+                    {chartData.length} sessions
+                  </div>
+                </div>
+              );
+            })()}
           </div>
-          <AreaChart data={CHART_DATA} height={100} />
+          {currentExercise ? (
+            chartData.length > 0 ? (
+              <AreaChart data={chartData} height={80} />
+            ) : (
+              <div style={{ height: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)" }}>No history yet — finish your first set to start the trend</span>
+              </div>
+            )
+          ) : (
+            <div style={{ height: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <button
+                onClick={() => setJumpOpen(true)}
+                style={{ background: `${accent}18`, border: `1px dashed ${accent}55`, borderRadius: "10px", padding: "10px 20px", color: accent, fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                + Select an exercise to begin
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Overload suggestion */}
@@ -485,45 +565,75 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
 
       {/* Rest timer sheet */}
       <BottomSheet open={timerOpen} onClose={() => { setTimerOpen(false); setTimerActive(false); }}>
-        <div style={{ textAlign: "center", padding: "4px 0 16px" }}>
-          <div style={{ fontSize: "13px", color: c.muted, marginBottom: "18px", fontWeight: 500 }}>Rest Timer</div>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: "18px" }}>
-            <svg width="120" height="120" viewBox="0 0 120 120">
-              <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
+        <div style={{ textAlign: "center", padding: "4px 0 8px" }}>
+          <div style={{ fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", color: c.muted, marginBottom: "20px", fontWeight: 600 }}>Rest Timer</div>
+
+          {/* Ring + nudge buttons */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "20px", marginBottom: "22px" }}>
+            <button
+              onClick={() => setTimerSec((s) => Math.max(0, s - 15))}
+              style={{
+                width: "42px", height: "42px", borderRadius: "50%",
+                background: "rgba(255,255,255,0.06)", border: `1px solid ${c.border}`,
+                color: c.muted, fontSize: "13px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              −15
+            </button>
+            <svg width="136" height="136" viewBox="0 0 136 136">
+              <circle cx="68" cy="68" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="9" />
               <circle
-                cx="60" cy="60" r={r} fill="none"
-                stroke={pulsing ? c.orange : accent} strokeWidth="8"
+                cx="68" cy="68" r={r} fill="none"
+                stroke={pulsing ? c.orange : timerLow ? c.orange : accent} strokeWidth="9"
                 strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)}
-                strokeLinecap="round" transform="rotate(-90 60 60)"
-                style={{ transition: pulsing ? "none" : "stroke-dashoffset 1s linear, stroke 0.3s" }}
+                strokeLinecap="round" transform="rotate(-90 68 68)"
+                style={{ transition: pulsing ? "none" : "stroke-dashoffset 1s linear, stroke 0.5s" }}
               />
-              <text x="60" y="56" textAnchor="middle" fontSize="22" fontWeight="700" fill={c.text} fontFamily="inherit">{fmt(timerSec)}</text>
-              <text x="60" y="74" textAnchor="middle" fontSize="10" fill={c.muted} fontFamily="inherit">remaining</text>
+              <text x="68" y="62" textAnchor="middle" fontSize="30" fontWeight="700" fill={c.text} fontFamily="monospace">{fmt(timerSec)}</text>
+              <text x="68" y="82" textAnchor="middle" fontSize="11" fill={c.muted} fontFamily="inherit">remaining</text>
             </svg>
+            <button
+              onClick={() => setTimerSec((s) => s + 15)}
+              style={{
+                width: "42px", height: "42px", borderRadius: "50%",
+                background: "rgba(255,255,255,0.06)", border: `1px solid ${c.border}`,
+                color: c.muted, fontSize: "13px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              +15
+            </button>
           </div>
-          <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "14px" }}>
-            {[60, 90, 120, 180].map((s) => (
-              <button
-                key={s}
-                onClick={() => startTimer(s)}
-                style={{
-                  padding: "6px 12px", borderRadius: radii.pill, fontSize: "12px", fontWeight: 500,
-                  background: timerMax === s ? `${accent}22` : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${timerMax === s ? accent : c.border}`,
-                  color: timerMax === s ? accent : c.muted,
-                  cursor: "pointer", fontFamily: "inherit",
-                }}
-              >
-                {s}s
-              </button>
-            ))}
+
+          {/* Preset chips */}
+          <div style={{ display: "flex", gap: "8px", justifyContent: "center", marginBottom: "20px" }}>
+            {([60, 90, 120, 180] as const).map((s) => {
+              const active = timerMax === s;
+              const label = s === 60 ? "1:00" : s === 90 ? "1:30" : s === 120 ? "2:00" : "3:00";
+              return (
+                <button
+                  key={s}
+                  onClick={() => startTimer(s)}
+                  style={{
+                    padding: "7px 14px", borderRadius: radii.pill, fontSize: "13px", fontWeight: 600,
+                    background: active ? accent : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${active ? accent : c.border}`,
+                    color: active ? "#fff" : c.muted,
+                    cursor: "pointer", fontFamily: "inherit",
+                    transition: "background 200ms, color 200ms",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Dismiss — ghost text */}
           <button
             onClick={() => { setTimerOpen(false); setTimerActive(false); }}
             style={{
-              width: "100%", height: "44px", borderRadius: radii.pill,
-              background: "transparent", border: `1px solid ${c.borderMid}`,
-              color: c.text, fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+              background: "none", border: "none",
+              color: c.muted, fontSize: "14px", fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
             }}
           >
             Dismiss
@@ -534,29 +644,80 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
       {/* Plate calculator sheet */}
       <BottomSheet open={plateOpen} onClose={() => setPlateOpen(false)} title="Plate calculator">
         <div style={{ paddingBottom: "8px" }}>
-          <div style={{ marginBottom: "18px" }}>
-            <div style={{ fontSize: "12px", color: c.muted, marginBottom: "6px" }}>Target weight (kg)</div>
-            <input
-              type="text" inputMode="decimal" value={plateTarget}
-              onChange={(e) => setPlateTarget(parseFloat(e.target.value) || 0)}
-              style={{
-                width: "100%", background: "#1a1a1a", border: `1px solid rgba(255,255,255,0.15)`,
-                borderRadius: "10px", padding: "10px 12px", fontSize: "22px", fontWeight: 700,
-                color: c.text, outline: "none", fontFamily: "inherit", textAlign: "center",
-                boxSizing: "border-box",
-              }}
-              onFocus={(e) => { e.target.style.borderColor = accent; }}
-              onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.15)"; }}
-            />
+          {/* Bar weight toggle */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+            <span style={{ fontSize: "12px", color: c.muted, fontWeight: 500 }}>Bar weight</span>
+            <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: "999px", padding: "3px", gap: "2px" }}>
+              {[15, 20].map((kg) => (
+                <button
+                  key={kg}
+                  onClick={() => setPlateBarKg(kg)}
+                  style={{
+                    padding: "5px 14px", borderRadius: "999px", fontSize: "13px", fontWeight: 600,
+                    background: plateBarKg === kg ? accent : "transparent",
+                    color: plateBarKg === kg ? "#fff" : c.muted,
+                    border: "none", cursor: "pointer", fontFamily: "inherit",
+                    transition: "background 200ms, color 200ms",
+                  }}
+                >
+                  {kg}kg
+                </button>
+              ))}
+            </div>
           </div>
-          <PlateViz plates={plateCalc.plates} sideKg={plateCalc.sideKg} barKg={20} accent={accent} />
+
+          {/* Weight input with stepper */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
+            <button
+              onClick={() => setPlateTarget((t) => Math.max(plateBarKg, +(t - 2.5).toFixed(2)))}
+              style={{
+                width: "44px", height: "44px", flexShrink: 0, borderRadius: "50%",
+                background: "rgba(255,255,255,0.07)", border: `1px solid ${c.border}`,
+                color: c.text, fontSize: "20px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              −
+            </button>
+            <div style={{ flex: 1, position: "relative" }}>
+              <input
+                type="text" inputMode="decimal" value={plateTarget}
+                onChange={(e) => setPlateTarget(parseFloat(e.target.value) || 0)}
+                style={{
+                  width: "100%", background: c.cardBg2, border: `1px solid ${c.border}`,
+                  borderRadius: "14px", padding: "12px 40px 12px 12px", fontSize: "26px", fontWeight: 700,
+                  color: c.text, outline: "none", fontFamily: "inherit", textAlign: "center",
+                  boxSizing: "border-box",
+                }}
+                onFocus={(e) => { e.target.style.borderColor = accent; }}
+                onBlur={(e) => { e.target.style.borderColor = c.border; }}
+              />
+              <span style={{
+                position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)",
+                fontSize: "14px", color: c.muted, fontWeight: 500, pointerEvents: "none",
+              }}>kg</span>
+            </div>
+            <button
+              onClick={() => setPlateTarget((t) => +(t + 2.5).toFixed(2))}
+              style={{
+                width: "44px", height: "44px", flexShrink: 0, borderRadius: "50%",
+                background: "rgba(255,255,255,0.07)", border: `1px solid ${c.border}`,
+                color: c.text, fontSize: "20px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              +
+            </button>
+          </div>
+
+          <PlateViz plates={plateCalc.plates} sideKg={plateCalc.sideKg} barKg={plateBarKg} accent={accent} />
+
           <div style={{ marginTop: "20px" }}>
             <button
               onClick={() => { if (nextSet) updateSet(nextSet.id, "weight", String(plateTarget)); setPlateOpen(false); }}
               style={{
-                width: "100%", height: "44px", borderRadius: radii.pill,
+                width: "100%", height: "48px", borderRadius: radii.pill,
                 background: accent, color: "#fff", border: "none",
-                fontSize: "14px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                fontSize: "15px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                boxShadow: `0 4px 16px ${accent}44`,
               }}
             >
               Apply to next set
@@ -596,31 +757,34 @@ export function WorkoutTracker({ onBack, onFinish, accentColor }: WorkoutTracker
         )}
       </BottomSheet>
 
-      {/* Jump to exercise sheet */}
-      <BottomSheet open={jumpOpen} onClose={() => setJumpOpen(false)} title="Jump to exercise">
+      {/* Exercise selector sheet */}
+      <BottomSheet open={jumpOpen} onClose={() => setJumpOpen(false)} title="Select exercise">
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {EXERCISES.map((ex) => (
-            <div
-              key={ex}
-              onClick={() => setJumpOpen(false)}
-              style={{
-                padding: "13px 12px", borderRadius: "12px",
-                background: "rgba(255,255,255,0.04)",
-                border: `1px solid ${ex === "Back Squat" ? `${accent}55` : c.border}`,
-                cursor: "pointer", fontSize: "15px",
-                color: ex === "Back Squat" ? accent : c.text,
-                fontWeight: ex === "Back Squat" ? 600 : 400,
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-              }}
-            >
-              {ex}
-              {ex === "Back Squat" && (
-                <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
-                  Current
-                </div>
-              )}
-            </div>
-          ))}
+          {EXERCISES.map((ex) => {
+            const isActive = ex === currentExercise;
+            return (
+              <div
+                key={ex}
+                onClick={() => { setCurrentExercise(ex); setJumpOpen(false); }}
+                style={{
+                  padding: "13px 12px", borderRadius: "12px",
+                  background: isActive ? `${accent}15` : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${isActive ? `${accent}55` : c.border}`,
+                  cursor: "pointer", fontSize: "15px",
+                  color: isActive ? accent : c.text,
+                  fontWeight: isActive ? 600 : 400,
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                }}
+              >
+                {ex}
+                {isActive && (
+                  <div style={{ padding: "2px 8px", borderRadius: radii.pill, fontSize: "11px", fontWeight: 600, background: `${accent}22`, color: accent, border: `1px solid ${accent}44` }}>
+                    Current
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </BottomSheet>
     </div>
