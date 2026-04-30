@@ -17,12 +17,20 @@ interface ExerciseSummary {
   topSet: string;
 }
 
+export interface CompletedSet {
+  exercise: string;
+  weightKg: number;
+  reps: number;
+  rpe?: number;
+}
+
 export interface WorkoutSummaryData {
   duration: string;
   totalVolume: string;
   sets: number;
   prs: PR[];
   exercises: ExerciseSummary[];
+  completedSets?: CompletedSet[];
 }
 
 interface WorkoutSummaryProps {

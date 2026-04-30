@@ -12,7 +12,7 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
   React.useEffect(() => {
     // Set CSS variables
     document.documentElement.style.setProperty("--tabbar-h", "84px");
-    document.documentElement.style.setProperty("--tabbar-bottom-offset", "12px");
+    document.documentElement.style.setProperty("--tabbar-bottom-offset", "6px");
     document.documentElement.style.setProperty("--safe-bottom", "env(safe-area-inset-bottom, 0px)");
     
     // Ensure body and html have black background
