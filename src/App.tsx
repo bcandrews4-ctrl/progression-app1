@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal, Bell, Users, ChevronRight, Play, RotateCcw, Timer, Calculator } from "lucide-react";
+import { LogOut, Plus, Footprints, Moon, Heart, Trash2, Trophy, Dumbbell, TrendingUp, Zap, MoreHorizontal, Bell, Users, ChevronRight, Play, RotateCcw, Timer, Calculator, Copy, Check } from "lucide-react";
 
 import {
   LineChart,
@@ -32,7 +32,6 @@ import {
   fetchImported,
   fetchHealth,
 } from "./lib/db";
-import { fetchStravaConnection, fetchStravaActivities, syncStrava, connectStrava, disconnectStrava, mapStravaTypeToCategory } from "./lib/strava";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -134,8 +133,8 @@ type HealthPeriod = "Daily" | "Weekly" | "Monthly";
 type SleepStage = "Awake" | "REM" | "Core" | "Deep";
 
 type SleepStageData = {
-  time: string; // "HH:MM" format
-  stage: SleepStage;
+  stage: string;
+  minutes: number;
 };
 
 type HealthMetric = {
@@ -533,53 +532,13 @@ function buildEmptyData() {
 
 // Helper function to generate sleep stages data
 function generateSleepStages(totalHours: number): SleepStageData[] {
-  const stages: SleepStageData[] = [];
-  const startHour = 22; // 10 PM
-  const startMinute = 0;
-  const totalMinutes = totalHours * 60;
-  const intervalMinutes = 30; // 30-minute intervals
-  
-  let currentMinute = 0;
-  const bedtime = startHour * 60 + startMinute;
-  
-  while (currentMinute < totalMinutes) {
-    const hour = Math.floor((bedtime + currentMinute) / 60) % 24;
-    const minute = (bedtime + currentMinute) % 60;
-    const timeStr = `${pad2(hour)}:${pad2(minute)}`;
-    
-    // Simulate sleep stages pattern
-    let stage: SleepStage;
-    const progress = currentMinute / totalMinutes;
-    
-    if (progress < 0.02) {
-      stage = "Awake"; // Initial wake period
-    } else if (progress < 0.15) {
-      stage = "Core"; // Light sleep start
-    } else if (progress < 0.25) {
-      stage = "Deep"; // Deep sleep period
-    } else if (progress < 0.35) {
-      stage = "Core";
-    } else if (progress < 0.45) {
-      stage = "REM";
-    } else if (progress < 0.55) {
-      stage = "Core";
-    } else if (progress < 0.65) {
-      stage = "Deep";
-    } else if (progress < 0.75) {
-      stage = "Core";
-    } else if (progress < 0.85) {
-      stage = "REM";
-    } else if (progress < 0.95) {
-      stage = "Core";
-    } else {
-      stage = "Awake"; // Waking up
-    }
-    
-    stages.push({ time: timeStr, stage });
-    currentMinute += intervalMinutes;
-  }
-  
-  return stages;
+  const total = totalHours * 60;
+  return [
+    { stage: "Core",  minutes: Math.round(total * 0.50) },
+    { stage: "Deep",  minutes: Math.round(total * 0.20) },
+    { stage: "REM",   minutes: Math.round(total * 0.25) },
+    { stage: "Awake", minutes: Math.round(total * 0.05) },
+  ];
 }
 
 function calcLiftedTonnage(lifts: LiftEntry[]) {
@@ -1254,7 +1213,10 @@ function App() {
   const [onboardingComplete, setOnboardingComplete] = useState<boolean>(false);
   const [profileRole, setProfileRole] = useState<string>("member");
   const [profileDisplayName, setProfileDisplayName] = useState<string>("Member");
+  const [profileSyncToken, setProfileSyncToken] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [syncTokenCopied, setSyncTokenCopied] = useState(false);
+  const [syncUrlCopied, setSyncUrlCopied] = useState(false);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("30");
 
@@ -1293,10 +1255,6 @@ function App() {
   const [showRestSheet, setShowRestSheet] = useState(false);
   const [showPlateSheet, setShowPlateSheet] = useState(false);
   const [hideDeloadBanner, setHideDeloadBanner] = useState(false);
-  const [stravaConnection, setStravaConnection] = useState<{ athlete_name: string; last_sync_at: string } | null>(null);
-  const [stravaActivities, setStravaActivities] = useState<Array<{ id: string; type: string; start_date: string; name?: string; distance_m?: number; moving_time: number; calories?: number; average_heartrate?: number }>>([]);
-  const [stravaSyncLoading, setStravaSyncLoading] = useState(false);
-  const [stravaLoading, setStravaLoading] = useState(false);
 
 
   // Bootstrap: Initialize auth session - CRITICAL: Must complete before any profile operations
@@ -1396,9 +1354,6 @@ function App() {
       return;
     }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H3',location:'App.tsx:modeEffect',message:'mode-effect-evaluation',data:{hasUser:!!session?.user,sessionLoading,profileLoading,dataLoaded,profileTrainingFocus,onboardingComplete},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     // CRITICAL: Check onboarding_complete first
     // If onboarding is not complete, show onboarding steps
@@ -1463,6 +1418,7 @@ function App() {
           setOnboardingComplete(profile.onboarding_complete);
           setProfileRole(profile.role ?? "member");
           setProfileDisplayName(profile.display_name ?? "Member");
+          setProfileSyncToken(profile.sync_token ?? null);
           if (profile.training_focus) setFocus(profile.training_focus);
         } else {
           // Profile row created by trigger — just set defaults
@@ -1549,71 +1505,6 @@ function App() {
       }
     };
   }, [focus, lifts, cardio, runs, imported, healthData, session?.user.id, dataLoaded, devBypassAuth]);
-
-  // --- Load Strava connection and activities
-  useEffect(() => {
-    if (devBypassAuth) {
-      setStravaConnection(null);
-      setStravaActivities([]);
-      return;
-    }
-
-    if (!session?.user.id) {
-      setStravaConnection(null);
-      setStravaActivities([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadStrava = async () => {
-      try {
-        const connection = await fetchStravaConnection();
-        if (cancelled) return;
-        setStravaConnection(connection ? {
-          athlete_name: connection.athlete_name,
-          last_sync_at: connection.last_sync_at,
-        } : null);
-
-        if (connection) {
-          const activities = await fetchStravaActivities();
-          if (!cancelled) {
-            setStravaActivities(activities);
-          }
-        } else {
-          setStravaActivities([]);
-        }
-        
-        // Check for URL params (from OAuth callback)
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('connected') === 'strava') {
-          // Show success (you could add a toast here)
-        }
-        
-        // Handle tab query parameter (for OAuth redirects)
-        const tabParam = urlParams.get('tab');
-        if (tabParam && ['Train', 'Progress', 'Body', 'Badges', 'Profile'].includes(tabParam)) {
-          setTab(tabParam as AppTab);
-        }
-        
-        // Clean URL after processing params
-        if (urlParams.toString()) {
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-      } catch (error) {
-        console.error('Error loading Strava:', error);
-        if (!cancelled) {
-          setStravaConnection(null);
-          setStravaActivities([]);
-        }
-      }
-    };
-
-    loadStrava();
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user.id, devBypassAuth]);
 
   // --- Lift entry form
   const [liftWeight, setLiftWeight] = useState("");
@@ -1872,53 +1763,6 @@ function App() {
       });
     }
 
-    // Add Strava activities
-    for (const activity of stravaActivities) {
-      const category = mapStravaTypeToCategory(activity.type);
-      const dateISO = activity.start_date.split('T')[0];
-
-      let title = activity.name || activity.type;
-      let subtitle = `${formatDateShort(dateISO)}`;
-      let right = '';
-
-      if (category === 'Running' && activity.distance_m) {
-        const distKm = activity.distance_m / 1000;
-        const timeMin = activity.moving_time / 60;
-        const speedKmh = distKm > 0 && activity.moving_time > 0 ? (distKm * 3600) / activity.moving_time : 0;
-        subtitle += ` • ${distKm.toFixed(2)}km • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        right = `${speedKmh.toFixed(2)} km/h`;
-      } else if (category === 'Cardio') {
-        const timeMin = activity.moving_time / 60;
-        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        if (activity.calories) {
-          right = `${activity.calories} cal`;
-        } else if (activity.average_heartrate) {
-          right = `HR ${Math.round(activity.average_heartrate)}`;
-        } else {
-          right = activity.type;
-        }
-      } else {
-        const timeMin = activity.moving_time / 60;
-        subtitle += ` • ${Math.floor(timeMin)}:${String(Math.floor((timeMin % 1) * 60)).padStart(2, '0')}`;
-        right = activity.type;
-      }
-
-      const onClickFn = category === 'Running' ? () => {
-        setSelectedRunDistance(activity.distance_m ? Math.round(activity.distance_m) : 800);
-        setTab("Progress");
-        setProgressFilter("Running");
-      } : category === 'Cardio' ? () => {
-        // Could navigate to cardio progress if needed
-      } : undefined;
-
-      if (category === 'Running') {
-        items.push({ type: 'run' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}`, onClick: onClickFn! });
-      } else if (category === 'Cardio') {
-        items.push({ type: 'cardio' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}`, onClick: onClickFn! });
-      } else {
-        items.push({ type: 'import' as const, dateISO, title, subtitle, right, key: `strava-${activity.id}` });
-      }
-    }
 
     items.sort((a, b) => isoToDate(b.dateISO).getTime() - isoToDate(a.dateISO).getTime());
 
@@ -2371,34 +2215,22 @@ function App() {
     const [saveError, setSaveError] = useState<string | null>(null);
 
     const handleContinue = async () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H2',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'continue-pressed',data:{selectedFocus,hasSessionUser:!!session?.user},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (!selectedFocus || !session?.user) return;
       
       setSaving(true);
       setSaveError(null);
 
       try {
-        // #region agent log
-        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-start',data:{userId:session.user.id,selectedFocus},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         await updateProfile(session.user.id, {
           training_focus: selectedFocus,
           onboarding_complete: false,
         });
 
-        // #region agent log
-        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-success',data:{userId:session.user.id,selectedFocus},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         setFocus(selectedFocus);
         setProfileTrainingFocus(selectedFocus);
         setOnboardingComplete(false);
         setMode("WELCOME");
       } catch (err: any) {
-        // #region agent log
-        fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H1',location:'App.tsx:TrainingFocusScreen.handleContinue',message:'updateProfile-error',data:{message:err?.message ?? 'unknown',code:err?.code ?? null,status:err?.status ?? null},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         setSaveError(err?.message || "An error occurred. Please try again.");
       } finally {
         setSaving(false);
@@ -2427,9 +2259,6 @@ function App() {
                 <button
                   key={option.value}
                   onClick={() => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7835/ingest/77277bb7-a6f7-43e6-8ec6-2bc6b08bab10',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c095c6'},body:JSON.stringify({sessionId:'c095c6',runId:'initial',hypothesisId:'H4',location:'App.tsx:TrainingFocusScreen.optionClick',message:'focus-option-selected',data:{selectedOption:option.value},timestamp:Date.now()})}).catch(()=>{});
-                    // #endregion
                     setSelectedFocus(option.value);
                   }}
                   className="w-full text-left transition-all duration-200 active:scale-[0.98]"
@@ -2984,7 +2813,7 @@ function App() {
                 onClick={() => setSubView("challenges")}
               />
 
-              <DeviceSyncStrip stravaConnected={Boolean(stravaConnection)} />
+              <DeviceSyncStrip />
               <CommunityFeed userId={session!.user.id} userName={profileDisplayName} />
             </div>
           ) : null}
@@ -3578,8 +3407,8 @@ function App() {
                               <AreaChart
                                 data={latest.sleepStages.map((s, idx) => ({
                                   index: idx,
-                                  time: s.time,
                                   stage: s.stage,
+                                  minutes: s.minutes,
                                   deep: s.stage === "Deep" ? 3 : 0,
                                   core: s.stage === "Core" ? 2 : 0,
                                   rem: s.stage === "REM" ? 1 : 0,
@@ -3942,222 +3771,7 @@ function App() {
                 </div>
               </Card>
 
-              <GlassCard>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-base font-semibold" style={{ color: TEXT }}>
-                      Strava
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: MUTED }}>
-                      {stravaConnection 
-                        ? `Connected to Strava${stravaConnection.athlete_name ? ` • ${stravaConnection.athlete_name}` : ''}`
-                        : 'Import runs and cardio sessions'}
-                    </div>
-                  </div>
-                </div>
 
-                {stravaConnection ? (
-                  <div className="space-y-3">
-                    <div className="text-xs" style={{ color: MUTED }}>
-                      {stravaConnection.last_sync_at 
-                        ? `Last sync: ${formatDateShort(stravaConnection.last_sync_at.split('T')[0])}`
-                        : 'Never synced'}
-                    </div>
-                    <div className="flex gap-2">
-                      <PrimaryButton
-                        onClick={async () => {
-                          setStravaSyncLoading(true);
-                          try {
-                            const result = await syncStrava();
-                            // Reload connection and activities
-                            const connection = await fetchStravaConnection();
-                            setStravaConnection(connection ? {
-                              athlete_name: connection.athlete_name,
-                              last_sync_at: connection.last_sync_at,
-                            } : null);
-                            const activities = await fetchStravaActivities();
-                            setStravaActivities(activities);
-                            
-                            // Show context-aware toast
-                            if (result.importedCount > 0) {
-                              const lastSyncDate = connection?.last_sync_at 
-                                ? formatDateShort(connection.last_sync_at.split('T')[0])
-                                : null;
-                              showToast({
-                                title: 'Strava synced ✅',
-                                body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.${lastSyncDate ? ` Last sync: ${lastSyncDate}` : ''}`,
-                                variant: 'success',
-                                autoDismiss: true,
-                                dismissAfter: 4000,
-                              });
-                            } else if (result.updatedCount > 0) {
-                              showToast({
-                                title: 'Strava synced ✅',
-                                body: `Updated ${result.updatedCount} activit${result.updatedCount === 1 ? 'y' : 'ies'}.`,
-                                variant: 'success',
-                                autoDismiss: true,
-                                dismissAfter: 3000,
-                              });
-                            } else {
-                              // No new or updated activities
-                              showToast({
-                                title: "You're up to date",
-                                body: 'No new Strava activities since your last sync.',
-                                variant: 'info',
-                                autoDismiss: false,
-                                secondaryAction: {
-                                  label: 'Sync last 30 days',
-                                  onClick: async () => {
-                                    setStravaSyncLoading(true);
-                                    try {
-                                      // Call sync - API will sync from last_sync_at or default to 30 days
-                                      const result = await syncStrava();
-                                      const connection = await fetchStravaConnection();
-                                      setStravaConnection(connection ? {
-                                        athlete_name: connection.athlete_name,
-                                        last_sync_at: connection.last_sync_at,
-                                      } : null);
-                                      const activities = await fetchStravaActivities();
-                                      setStravaActivities(activities);
-                                      
-                                      if (result.importedCount > 0 || result.updatedCount > 0) {
-                                        showToast({
-                                          title: 'Strava synced ✅',
-                                          body: `Found ${result.importedCount + result.updatedCount} activit${result.importedCount + result.updatedCount === 1 ? 'y' : 'ies'}.`,
-                                          variant: 'success',
-                                          autoDismiss: true,
-                                          dismissAfter: 4000,
-                                        });
-                                      } else {
-                                        showToast({
-                                          title: 'No activities found',
-                                          body: 'No new Strava activities found.',
-                                          variant: 'info',
-                                          autoDismiss: true,
-                                          dismissAfter: 3000,
-                                        });
-                                      }
-                                    } catch (error: any) {
-                                      showToast({
-                                        title: 'Sync failed',
-                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                        variant: 'error',
-                                        autoDismiss: true,
-                                        dismissAfter: 4000,
-                                      });
-                                    } finally {
-                                      setStravaSyncLoading(false);
-                                    }
-                                  },
-                                },
-                              });
-                            }
-                          } catch (error: any) {
-                            if (error.message?.includes('Rate limit')) {
-                              showToast({
-                                title: 'Rate limit reached',
-                                body: 'Strava rate limit reached. Please try again later.',
-                                variant: 'error',
-                                autoDismiss: true,
-                                dismissAfter: 5000,
-                              });
-                            } else {
-                              showToast({
-                                title: 'Sync failed',
-                                body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                variant: 'error',
-                                action: {
-                                  label: 'Try again',
-                                  onClick: async () => {
-                                    setStravaSyncLoading(true);
-                                    try {
-                                      const result = await syncStrava();
-                                      const connection = await fetchStravaConnection();
-                                      setStravaConnection(connection ? {
-                                        athlete_name: connection.athlete_name,
-                                        last_sync_at: connection.last_sync_at,
-                                      } : null);
-                                      const activities = await fetchStravaActivities();
-                                      setStravaActivities(activities);
-                                      showToast({
-                                        title: 'Strava synced ✅',
-                                        body: `Imported ${result.importedCount} new activit${result.importedCount === 1 ? 'y' : 'ies'}.`,
-                                        variant: 'success',
-                                        autoDismiss: true,
-                                        dismissAfter: 3000,
-                                      });
-                                    } catch (retryError: any) {
-                                      showToast({
-                                        title: 'Sync failed',
-                                        body: 'Couldn\'t sync Strava right now. Try again in a minute.',
-                                        variant: 'error',
-                                        autoDismiss: true,
-                                        dismissAfter: 4000,
-                                      });
-                                    } finally {
-                                      setStravaSyncLoading(false);
-                                    }
-                                  },
-                                },
-                                autoDismiss: false,
-                              });
-                            }
-                          } finally {
-                            setStravaSyncLoading(false);
-                          }
-                        }}
-                        disabled={stravaSyncLoading}
-                      >
-                        {stravaSyncLoading ? 'Syncing...' : 'Sync now'}
-                      </PrimaryButton>
-                      <button
-                        onClick={async () => {
-                          if (!confirm('Disconnect Strava? Your imported activities will remain.')) return;
-                          try {
-                            await disconnectStrava();
-                            setStravaConnection(null);
-                            // Keep activities - don't clear them
-                          } catch (error: any) {
-                            alert(`Disconnect failed: ${error.message || 'Unknown error'}`);
-                          }
-                        }}
-                        className="px-4 py-2 text-sm font-medium transition-all duration-200 hover:opacity-90 active:scale-95"
-                        style={{
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.2)',
-                          borderRadius: radii.pill,
-                          color: TEXT,
-                          flex: 1,
-                        }}
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <PrimaryButton
-                      onClick={async () => {
-                        setStravaLoading(true);
-                        try {
-                          await connectStrava();
-                          // Will redirect, so loading state will be lost
-                        } catch (error: any) {
-                          setStravaLoading(false);
-                          if (error.message?.includes('not configured') || error.message?.includes('env')) {
-                            alert('Strava is not configured. Please contact support.');
-                          } else {
-                            alert(`Connection failed: ${error.message || 'Unknown error'}`);
-                          }
-                        }
-                      }}
-                      disabled={stravaLoading}
-                    >
-                      {stravaLoading ? 'Connecting...' : 'Connect Strava'}
-                    </PrimaryButton>
-                  </div>
-                )}
-              </GlassCard>
 
               <Card title="Data sources">
                 <div className="flex flex-wrap gap-2">
@@ -4168,6 +3782,84 @@ function App() {
                   Your Overview totals include both manual entries and imported workouts.
                 </div>
               </Card>
+
+              {/* Apple Health Sync setup */}
+              <GlassCard>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: "10px", flexShrink: 0,
+                    background: c.accentSoft, border: `1px solid ${c.accentBorder}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Heart size={18} color={c.accent} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: TEXT }}>Apple Health Sync</div>
+                    <div style={{ fontSize: "12px", color: MUTED, marginTop: "1px" }}>
+                      {healthData[0]?.dateISO
+                        ? `Last synced ${healthData[0].dateISO}`
+                        : "Not yet synced"}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: "13px", color: MUTED, marginBottom: "14px", lineHeight: 1.5 }}>
+                  Open <strong style={{ color: TEXT }}>HealthBridge</strong> on your iPhone, paste your sync token and tap Sync. Data updates daily.
+                </div>
+
+                {/* Sync token row */}
+                <div style={{ marginBottom: "10px" }}>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
+                    Your sync token
+                  </div>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "8px",
+                    background: "rgba(255,255,255,0.04)", border: `1px solid ${c.border}`,
+                    borderRadius: "10px", padding: "10px 12px",
+                  }}>
+                    <span style={{ flex: 1, fontSize: "12px", color: TEXT, fontFamily: "monospace", letterSpacing: "0.03em", wordBreak: "break-all" }}>
+                      {profileSyncToken ?? "—"}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (!profileSyncToken) return;
+                        navigator.clipboard.writeText(profileSyncToken);
+                        setSyncTokenCopied(true);
+                        setTimeout(() => setSyncTokenCopied(false), 2000);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", flexShrink: 0, color: syncTokenCopied ? c.green : MUTED }}
+                    >
+                      {syncTokenCopied ? <Check size={15} /> : <Copy size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Endpoint URL row */}
+                <div>
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
+                    Endpoint URL
+                  </div>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "8px",
+                    background: "rgba(255,255,255,0.04)", border: `1px solid ${c.border}`,
+                    borderRadius: "10px", padding: "10px 12px",
+                  }}>
+                    <span style={{ flex: 1, fontSize: "11px", color: MUTED, fontFamily: "monospace", wordBreak: "break-all" }}>
+                      https://fjfyglqsnbhhclbbdllu.supabase.co/functions/v1/ingest-health
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText("https://fjfyglqsnbhhclbbdllu.supabase.co/functions/v1/ingest-health");
+                        setSyncUrlCopied(true);
+                        setTimeout(() => setSyncUrlCopied(false), 2000);
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", flexShrink: 0, color: syncUrlCopied ? c.green : MUTED }}
+                    >
+                      {syncUrlCopied ? <Check size={15} /> : <Copy size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </GlassCard>
 
               {profileRole === "admin" && (
                 <button

@@ -1,16 +1,11 @@
 import React from "react";
 import { useTheme } from "../hooks/useTheme";
 
-interface DeviceSyncStripProps {
-  stravaConnected: boolean;
-}
-
-export function DeviceSyncStrip({ stravaConnected }: DeviceSyncStripProps) {
+export function DeviceSyncStrip() {
   const { c } = useTheme();
 
   const devices = [
     { name: "Garmin", ok: false },
-    { name: "Strava", ok: stravaConnected },
     { name: "Watch", ok: true },
   ];
 

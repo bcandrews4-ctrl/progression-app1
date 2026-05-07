@@ -47,7 +47,7 @@ export type HealthMetric = {
   dateISO: string;
   steps: number;
   sleepHours: number;
-  sleepStages?: { time: string; stage: string }[];
+  sleepStages?: { stage: string; minutes: number }[];
   avgBPM: number;
   caloriesBurned: number;
   activeMinutes: number;
@@ -91,7 +91,7 @@ export type AdminDashboardData = {
 export async function fetchProfile(userId: string) {
   const { data, error } = await supabase
     .from('profiles')
-    .select('training_focus, onboarding_complete, role, data, email')
+    .select('training_focus, onboarding_complete, role, data, email, sync_token')
     .eq('id', userId)
     .single();
 
@@ -103,6 +103,7 @@ export async function fetchProfile(userId: string) {
     onboarding_complete: data.onboarding_complete as boolean,
     role: (data.role as string | null) ?? "member",
     display_name: nameFromData ?? nameFromEmail ?? "Member",
+    sync_token: (data.sync_token as string | null) ?? null,
   };
 }
 

@@ -48,7 +48,10 @@ This app now supports individual account creation using Supabase.
 
 ### Setup
 1. Create a Supabase project.
-2. In the Supabase SQL editor, run `supabase/schema.sql`.
+2. In the Supabase SQL editor, run the migrations in order:
+   - `supabase/schema.sql` — creates the `profiles` table and auth helpers
+   - `supabase/migration-relational.sql` — creates `lifts`, `cardio_entries`, `run_entries`, `imported_workouts`, and `health_metrics` tables
+   - `supabase/strava-migration.sql` — optional, only needed if enabling Strava integration
 3. In your `.env.local`, set:
    - `VITE_SUPABASE_URL=...`
    - `VITE_SUPABASE_ANON_KEY=...`

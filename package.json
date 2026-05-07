@@ -52,6 +52,7 @@
       },
       "devDependencies": {
             "@types/node": "^20.10.0",
+            "typescript": "^5.0.0",
             "@vitejs/plugin-react-swc": "^3.10.2",
             "electron": "^40.0.0",
             "electron-builder": "^26.4.0",
@@ -61,10 +62,13 @@
       "main": "electron/main.js",
       "scripts": {
             "dev": "vite",
+            "typecheck": "tsc --noEmit",
             "build": "vite build",
             "build:electron": "vite build && electron-builder",
             "electron:dev": "vite build && electron .",
-            "electron:pack": "electron-builder"
+            "electron:pack": "electron-builder",
+            "supabase:serve": "supabase functions serve ingest-health",
+            "test:health": "powershell -File scripts/test-health-ingest.ps1 -SyncToken"
       },
       "build": {
             "appId": "com.gymprogression.app",

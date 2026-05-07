@@ -118,37 +118,48 @@ export function CommunityFeed({ userId, userName }: CommunityFeedProps) {
       </div>
 
       {/* New post sheet */}
-      <BottomSheet open={postOpen} onClose={() => setPostOpen(false)} title="New post">
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Share a win, ask a question, or hype the crew…"
-            rows={4}
-            style={{
-              width: "100%", background: "rgba(255,255,255,0.05)",
-              border: `1px solid ${c.border}`, borderRadius: "12px",
-              padding: "12px", fontSize: "14px", color: c.text,
-              fontFamily: "inherit", resize: "none", outline: "none",
-              boxSizing: "border-box",
-            }}
-            onFocus={(e) => { e.target.style.borderColor = c.accent; }}
-            onBlur={(e) => { e.target.style.borderColor = c.border; }}
-          />
+      <BottomSheet open={postOpen} onClose={() => { setPostOpen(false); setDraft(""); }}>
+        {/* Header row — always visible above keyboard */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginBottom: "14px",
+        }}>
+          <button
+            onClick={() => { setPostOpen(false); setDraft(""); }}
+            style={{ fontSize: "14px", color: c.muted, background: "none", border: "none",
+                     cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}
+          >
+            Cancel
+          </button>
+          <span style={{ fontSize: "14px", fontWeight: 700, color: c.text }}>New post</span>
           <button
             onClick={handleSubmit}
             disabled={submitting || !draft.trim()}
-            style={{
-              width: "100%", padding: "14px", borderRadius: "12px",
-              background: draft.trim() ? c.accent : "rgba(255,255,255,0.08)",
-              border: "none", color: draft.trim() ? "#fff" : c.muted,
-              fontSize: "15px", fontWeight: 700, cursor: draft.trim() ? "pointer" : "default",
-              fontFamily: "inherit", transition: "background 0.2s",
-            }}
+            style={{ fontSize: "14px", fontWeight: 700,
+                     color: draft.trim() ? c.accent : c.muted2,
+                     background: "none", border: "none",
+                     cursor: draft.trim() ? "pointer" : "default",
+                     padding: "4px 0", fontFamily: "inherit" }}
           >
             {submitting ? "Posting…" : "Post"}
           </button>
         </div>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Share a win, ask a question, or hype the crew…"
+          rows={4}
+          autoFocus
+          style={{
+            width: "100%", background: "rgba(255,255,255,0.05)",
+            border: `1px solid ${c.border}`, borderRadius: "12px",
+            padding: "12px", fontSize: "14px", color: c.text,
+            fontFamily: "inherit", resize: "none", outline: "none",
+            boxSizing: "border-box",
+          }}
+          onFocus={(e) => { e.target.style.borderColor = c.accent; }}
+          onBlur={(e) => { e.target.style.borderColor = c.border; }}
+        />
       </BottomSheet>
     </>
   );

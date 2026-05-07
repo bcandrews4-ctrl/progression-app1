@@ -29,7 +29,7 @@ export function FloatingTabBar({ tabs, activeTab, onTabChange }: FloatingTabBarP
           borderRadius: radii["2xl"],
           padding: "8px 10px",
           boxShadow: shadows.dock,
-          height: "var(--tabbar-h, 84px)",
+          height: "var(--tabbar-h, 60px)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
