@@ -576,3 +576,8 @@ export async function insertCommunityPost(userId: string, authorName: string, bo
   });
   if (error) throw error;
 }
+
+export async function deleteCommunityPost(postId: string): Promise<void> {
+  const { error } = await supabase.from('community_posts').delete().eq('id', postId);
+  if (error) throw error;
+}

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useTheme } from "../hooks/useTheme";
-import { BottomSheet } from "./BottomSheet";
-import { fetchCommunityPosts, insertCommunityPost, CommunityPost } from "../lib/db";
-import { Edit3 } from "lucide-react";
+import { fetchCommunityPosts, insertCommunityPost, deleteCommunityPost, CommunityPost } from "../lib/db";
+import { Edit3, Trash2 } from "lucide-react";
 
 interface CommunityFeedProps {
   userId: string;
@@ -24,6 +23,7 @@ export function CommunityFeed({ userId, userName }: CommunityFeedProps) {
   const [postOpen, setPostOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -33,6 +33,13 @@ export function CommunityFeed({ userId, userName }: CommunityFeedProps) {
   }
 
   useEffect(() => { load(); }, []);
+
+  async function handleDelete(postId: string) {
+    setDeleting(postId);
+    try { await deleteCommunityPost(postId); await load(); }
+    catch (e) { console.error("Delete failed:", e); }
+    finally { setDeleting(null); }
+  }
 
   async function handleSubmit() {
     if (!draft.trim()) return;
@@ -109,58 +116,85 @@ export function CommunityFeed({ userId, userName }: CommunityFeedProps) {
                 <span style={{ fontSize: "13px", fontWeight: 600, color: c.text }}>{post.authorName} </span>
                 <span style={{ fontSize: "13px", color: c.muted }}>{post.body}</span>
               </div>
-              <div style={{ fontSize: "10px", color: c.muted2, flexShrink: 0, paddingTop: "2px" }}>
-                {timeAgo(post.createdAt)}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                <div style={{ fontSize: "10px", color: c.muted2, paddingTop: "2px" }}>
+                  {timeAgo(post.createdAt)}
+                </div>
+                {post.userId === userId && (
+                  <button
+                    onClick={() => handleDelete(post.id)}
+                    disabled={deleting === post.id}
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", color: c.muted2, flexShrink: 0, opacity: deleting === post.id ? 0.4 : 1 }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             </div>
           ))
         )}
       </div>
 
-      {/* New post sheet */}
-      <BottomSheet open={postOpen} onClose={() => { setPostOpen(false); setDraft(""); }}>
-        {/* Header row — always visible above keyboard */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: "14px",
-        }}>
-          <button
-            onClick={() => { setPostOpen(false); setDraft(""); }}
-            style={{ fontSize: "14px", color: c.muted, background: "none", border: "none",
-                     cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}
-          >
-            Cancel
-          </button>
-          <span style={{ fontSize: "14px", fontWeight: 700, color: c.text }}>New post</span>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !draft.trim()}
-            style={{ fontSize: "14px", fontWeight: 700,
-                     color: draft.trim() ? c.accent : c.muted2,
-                     background: "none", border: "none",
-                     cursor: draft.trim() ? "pointer" : "default",
-                     padding: "4px 0", fontFamily: "inherit" }}
-          >
-            {submitting ? "Posting…" : "Post"}
-          </button>
-        </div>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Share a win, ask a question, or hype the crew…"
-          rows={4}
-          autoFocus
+      {/* New post modal */}
+      {postOpen && (
+        <div
           style={{
-            width: "100%", background: "rgba(255,255,255,0.05)",
-            border: `1px solid ${c.border}`, borderRadius: "12px",
-            padding: "12px", fontSize: "14px", color: c.text,
-            fontFamily: "inherit", resize: "none", outline: "none",
-            boxSizing: "border-box",
+            position: "fixed", inset: 0, zIndex: 80,
+            background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "flex-start", justifyContent: "center",
+            paddingTop: "clamp(60px, 12vh, 100px)",
+            paddingLeft: "16px", paddingRight: "16px",
           }}
-          onFocus={(e) => { e.target.style.borderColor = c.accent; }}
-          onBlur={(e) => { e.target.style.borderColor = c.border; }}
-        />
-      </BottomSheet>
+          onClick={() => { setPostOpen(false); setDraft(""); }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: "480px",
+              background: "#0E0E12", borderRadius: "20px",
+              border: "1px solid rgba(255,255,255,0.1)",
+              padding: "16px", boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+              <button
+                onClick={() => { setPostOpen(false); setDraft(""); }}
+                style={{ fontSize: "14px", color: c.muted, background: "none", border: "none", cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}
+              >
+                Cancel
+              </button>
+              <span style={{ fontSize: "14px", fontWeight: 700, color: c.text }}>New post</span>
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || !draft.trim()}
+                style={{ fontSize: "14px", fontWeight: 700,
+                         color: draft.trim() ? c.accent : c.muted2,
+                         background: "none", border: "none",
+                         cursor: draft.trim() ? "pointer" : "default",
+                         padding: "4px 0", fontFamily: "inherit" }}
+              >
+                {submitting ? "Posting…" : "Post"}
+              </button>
+            </div>
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Share a win, ask a question, or hype the crew…"
+              rows={5}
+              autoFocus
+              style={{
+                width: "100%", background: "rgba(255,255,255,0.05)",
+                border: `1px solid ${c.border}`, borderRadius: "12px",
+                padding: "12px", fontSize: "14px", color: c.text,
+                fontFamily: "inherit", resize: "none", outline: "none",
+                boxSizing: "border-box",
+              }}
+              onFocus={(e) => { e.target.style.borderColor = c.accent; }}
+              onBlur={(e) => { e.target.style.borderColor = c.border; }}
+            />
+          </div>
+        </div>
+      )}
     </>
   );
 }
