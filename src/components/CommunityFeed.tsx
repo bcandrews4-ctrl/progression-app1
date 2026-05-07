@@ -135,49 +135,59 @@ export function CommunityFeed({ userId, userName }: CommunityFeedProps) {
         )}
       </div>
 
-      {/* New post — full-screen overlay (iOS native pattern) */}
+      {/* New post — centered backdrop card */}
       {postOpen && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 80,
-          background: "#0E0E12",
-          display: "flex", flexDirection: "column",
-        }}>
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "calc(16px + env(safe-area-inset-top, 0px)) 16px 12px",
-            borderBottom: "1px solid rgba(255,255,255,0.1)",
-            flexShrink: 0,
-          }}>
-            <button
-              onClick={() => { setPostOpen(false); setDraft(""); }}
-              style={{ fontSize: "15px", color: c.muted, background: "none", border: "none", cursor: "pointer", padding: "4px 0", fontFamily: "inherit" }}
-            >
-              Cancel
-            </button>
-            <span style={{ fontSize: "15px", fontWeight: 700, color: c.text }}>New post</span>
+        <div
+          onClick={() => { setPostOpen(false); setDraft(""); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 80,
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "24px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: "480px",
+              background: "#0E0E12", borderRadius: "20px",
+              border: "1px solid rgba(255,255,255,0.1)",
+              padding: "20px",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            }}
+          >
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Share a win, ask a question, or hype the crew…"
+              autoFocus
+              rows={5}
+              style={{
+                width: "100%", background: "rgba(255,255,255,0.05)",
+                border: `1px solid ${c.border}`, borderRadius: "12px",
+                padding: "14px", fontSize: "16px", color: c.text,
+                fontFamily: "inherit", resize: "none", outline: "none",
+                boxSizing: "border-box", display: "block", marginBottom: "12px",
+              }}
+              onFocus={(e) => { e.target.style.borderColor = c.accent; }}
+              onBlur={(e) => { e.target.style.borderColor = c.border; }}
+            />
             <button
               onClick={handleSubmit}
               disabled={submitting || !draft.trim()}
-              style={{ fontSize: "15px", fontWeight: 700,
-                       color: draft.trim() ? c.accent : c.muted2,
-                       background: "none", border: "none",
-                       cursor: draft.trim() ? "pointer" : "default",
-                       padding: "4px 0", fontFamily: "inherit" }}
+              style={{
+                width: "100%", padding: "14px",
+                background: draft.trim() ? c.accent : "rgba(255,255,255,0.1)",
+                color: draft.trim() ? "#fff" : c.muted2,
+                border: "none", borderRadius: "12px",
+                fontSize: "15px", fontWeight: 700,
+                cursor: draft.trim() ? "pointer" : "default",
+                fontFamily: "inherit",
+              }}
             >
               {submitting ? "Posting…" : "Post"}
             </button>
           </div>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Share a win, ask a question, or hype the crew…"
-            autoFocus
-            style={{
-              flex: 1, background: "none", border: "none", outline: "none",
-              padding: "16px", fontSize: "16px", color: c.text,
-              fontFamily: "inherit", resize: "none",
-            }}
-          />
         </div>
       )}
     </>

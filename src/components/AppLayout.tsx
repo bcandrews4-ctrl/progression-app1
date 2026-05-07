@@ -97,8 +97,8 @@ export function AppLayout({ children, header, tabBar }: AppLayoutProps) {
             justifyContent: "center",
             alignItems: "flex-end",
             background: colors.bg,
-            paddingBottom: "calc(var(--tabbar-bottom-offset) + env(safe-area-inset-bottom, 0px))",
-            minHeight: "calc(var(--tabbar-h) + var(--tabbar-bottom-offset) + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "0",
+            minHeight: "var(--tabbar-h)",
             pointerEvents: "none",
           }}
         >
