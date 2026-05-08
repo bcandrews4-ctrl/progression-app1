@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
 
   const userId = profile.id as string;
 
-  let body: { metrics?: any[] };
+  let body: { metrics?: any[]; workouts?: any[] };
   try {
     body = await req.json();
   } catch {
@@ -47,35 +47,68 @@ Deno.serve(async (req) => {
   }
 
   const metrics: any[] = body.metrics ?? [];
-  if (metrics.length === 0) {
-    return new Response(JSON.stringify({ upserted: 0 }), {
-      headers: { "Content-Type": "application/json" },
-    });
+  const workouts: any[] = body.workouts ?? [];
+
+  let upserted = 0;
+  let workoutsUpserted = 0;
+
+  if (metrics.length > 0) {
+    const rows = metrics.map((m) => ({
+      user_id: userId,
+      date_iso: m.dateISO,
+      steps: m.steps ?? 0,
+      sleep_hours: m.sleepHours ?? 0,
+      sleep_stages: m.sleepStages ?? null,
+      avg_bpm: m.avgBPM ?? 0,
+      calories_burned: m.caloriesBurned ?? 0,
+      active_minutes: m.activeMinutes ?? 0,
+      hrv_ms: m.hrvMs ?? null,
+      resting_bpm: m.restingBPM ?? null,
+      vo2_max: m.vo2Max ?? null,
+      stand_hours: m.standHours ?? null,
+      respiratory_rate: m.respiratoryRate ?? null,
+      mindfulness_minutes: m.mindfulMinutes ?? null,
+    }));
+
+    const { error } = await supabase
+      .from("health_metrics")
+      .upsert(rows, { onConflict: "user_id,date_iso" });
+
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    upserted = rows.length;
   }
 
-  const rows = metrics.map((m) => ({
-    user_id: userId,
-    date_iso: m.dateISO,
-    steps: m.steps ?? 0,
-    sleep_hours: m.sleepHours ?? 0,
-    sleep_stages: m.sleepStages ?? null,  // [{ stage: string, minutes: number }]
-    avg_bpm: m.avgBPM ?? 0,
-    calories_burned: m.caloriesBurned ?? 0,
-    active_minutes: m.activeMinutes ?? 0,
-  }));
+  if (workouts.length > 0) {
+    const workoutRows = workouts.map((w) => ({
+      id: w.externalId,
+      user_id: userId,
+      date_iso: (w.startTime as string).slice(0, 10),
+      source: w.source ?? "Apple Health",
+      workout_type: w.type,
+      minutes: Math.max(0, Math.round((new Date(w.endTime).getTime() - new Date(w.startTime).getTime()) / 60000)),
+      active_calories: w.calories != null ? Math.round(w.calories) : null,
+      distance_km: w.distanceKm ?? null,
+    }));
 
-  const { error } = await supabase
-    .from("health_metrics")
-    .upsert(rows, { onConflict: "user_id,date_iso" });
+    const { error: wErr } = await supabase
+      .from("imported_workouts")
+      .upsert(workoutRows, { onConflict: "id" });
 
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    if (wErr) {
+      return new Response(JSON.stringify({ error: wErr.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    workoutsUpserted = workoutRows.length;
   }
 
-  return new Response(JSON.stringify({ upserted: rows.length }), {
+  return new Response(JSON.stringify({ upserted, workoutsUpserted }), {
     headers: { "Content-Type": "application/json" },
   });
 });

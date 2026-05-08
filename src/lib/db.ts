@@ -51,6 +51,29 @@ export type HealthMetric = {
   avgBPM: number;
   caloriesBurned: number;
   activeMinutes: number;
+  hrvMs?: number | null;
+  restingBPM?: number | null;
+  vo2Max?: number | null;
+  standHours?: number | null;
+  respiratoryRate?: number | null;
+  mindfulnessMinutes?: number | null;
+};
+
+export type BodyMetric = {
+  id: string;
+  dateISO: string;
+  weightKg?: number | null;
+  heightCm?: number | null;
+  neckCm?: number | null;
+  bodyFatPct?: number | null;
+  leanMassKg?: number | null;
+  waistCm?: number | null;
+  chestCm?: number | null;
+  armsCm?: number | null;
+  thighsCm?: number | null;
+  hipsCm?: number | null;
+  notes?: string | null;
+  calculationMethod?: string | null;
 };
 
 export type AdminMemberSummary = {
@@ -275,6 +298,23 @@ export async function insertImported(userId: string, entry: ImportedWorkout) {
   if (error) throw error;
 }
 
+export async function upsertImportedWorkout(userId: string, entry: ImportedWorkout) {
+  const { error } = await supabase.from('imported_workouts').upsert(
+    {
+      id: entry.id,
+      user_id: userId,
+      date_iso: entry.dateISO,
+      source: entry.source,
+      workout_type: entry.workoutType,
+      minutes: entry.minutes,
+      active_calories: entry.activeCalories ?? null,
+      distance_km: entry.distanceKm ?? null,
+    },
+    { onConflict: 'id' },
+  );
+  if (error) throw error;
+}
+
 // ---------------------------------------------------------------------------
 // Health metrics
 // ---------------------------------------------------------------------------
@@ -282,7 +322,7 @@ export async function insertImported(userId: string, entry: ImportedWorkout) {
 export async function fetchHealth(userId: string): Promise<HealthMetric[]> {
   const { data, error } = await supabase
     .from('health_metrics')
-    .select('date_iso, steps, sleep_hours, sleep_stages, avg_bpm, calories_burned, active_minutes')
+    .select('date_iso, steps, sleep_hours, sleep_stages, avg_bpm, calories_burned, active_minutes, hrv_ms, resting_bpm, vo2_max, stand_hours, respiratory_rate, mindfulness_minutes')
     .eq('user_id', userId)
     .order('date_iso', { ascending: false });
 
@@ -295,6 +335,12 @@ export async function fetchHealth(userId: string): Promise<HealthMetric[]> {
     avgBPM: r.avg_bpm ?? 0,
     caloriesBurned: r.calories_burned ?? 0,
     activeMinutes: r.active_minutes ?? 0,
+    hrvMs: r.hrv_ms != null ? Number(r.hrv_ms) : null,
+    restingBPM: r.resting_bpm ?? null,
+    vo2Max: r.vo2_max != null ? Number(r.vo2_max) : null,
+    standHours: r.stand_hours ?? null,
+    respiratoryRate: r.respiratory_rate != null ? Number(r.respiratory_rate) : null,
+    mindfulnessMinutes: r.mindfulness_minutes ?? null,
   }));
 }
 
@@ -309,9 +355,67 @@ export async function upsertHealthMetric(userId: string, metric: HealthMetric) {
       avg_bpm: metric.avgBPM,
       calories_burned: metric.caloriesBurned,
       active_minutes: metric.activeMinutes,
+      hrv_ms: metric.hrvMs ?? null,
+      resting_bpm: metric.restingBPM ?? null,
+      vo2_max: metric.vo2Max ?? null,
+      stand_hours: metric.standHours ?? null,
+      respiratory_rate: metric.respiratoryRate ?? null,
+      mindfulness_minutes: metric.mindfulnessMinutes ?? null,
     },
     { onConflict: 'user_id,date_iso' },
   );
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Body metrics
+// ---------------------------------------------------------------------------
+
+export async function fetchBodyMetrics(userId: string): Promise<BodyMetric[]> {
+  const { data, error } = await supabase
+    .from('body_metrics')
+    .select('id, date_iso, weight_kg, height_cm, neck_cm, body_fat_pct, lean_mass_kg, waist_cm, chest_cm, arms_cm, thighs_cm, hips_cm, notes, calculation_method')
+    .eq('user_id', userId)
+    .order('date_iso', { ascending: false });
+
+  if (error) { console.error('fetchBodyMetrics error:', error); return []; }
+  return (data ?? []).map(r => ({
+    id: r.id,
+    dateISO: r.date_iso,
+    weightKg: r.weight_kg != null ? Number(r.weight_kg) : null,
+    heightCm: r.height_cm != null ? Number(r.height_cm) : null,
+    neckCm: r.neck_cm != null ? Number(r.neck_cm) : null,
+    bodyFatPct: r.body_fat_pct != null ? Number(r.body_fat_pct) : null,
+    leanMassKg: r.lean_mass_kg != null ? Number(r.lean_mass_kg) : null,
+    waistCm: r.waist_cm != null ? Number(r.waist_cm) : null,
+    chestCm: r.chest_cm != null ? Number(r.chest_cm) : null,
+    armsCm: r.arms_cm != null ? Number(r.arms_cm) : null,
+    thighsCm: r.thighs_cm != null ? Number(r.thighs_cm) : null,
+    hipsCm: r.hips_cm != null ? Number(r.hips_cm) : null,
+    notes: r.notes ?? null,
+    calculationMethod: r.calculation_method ?? null,
+  }));
+}
+
+export async function upsertBodyMetric(userId: string, metric: Omit<BodyMetric, 'id'> & { id?: string }) {
+  const row: Record<string, unknown> = {
+    user_id: userId,
+    date_iso: metric.dateISO,
+    weight_kg: metric.weightKg ?? null,
+    height_cm: metric.heightCm ?? null,
+    neck_cm: metric.neckCm ?? null,
+    body_fat_pct: metric.bodyFatPct ?? null,
+    lean_mass_kg: metric.leanMassKg ?? null,
+    waist_cm: metric.waistCm ?? null,
+    chest_cm: metric.chestCm ?? null,
+    arms_cm: metric.armsCm ?? null,
+    thighs_cm: metric.thighsCm ?? null,
+    hips_cm: metric.hipsCm ?? null,
+    notes: metric.notes ?? null,
+    calculation_method: metric.calculationMethod ?? null,
+  };
+  if (metric.id) row.id = metric.id;
+  const { error } = await supabase.from('body_metrics').upsert(row, { onConflict: 'id' });
   if (error) throw error;
 }
 

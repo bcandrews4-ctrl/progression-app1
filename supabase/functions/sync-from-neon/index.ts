@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { neon } from "https://esm.sh/@neondatabase/serverless@0.10";
 
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -8,33 +13,26 @@ const supabase = createClient(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, content-type",
-      },
-    });
+    return new Response(null, { headers: CORS });
   }
 
-  // Verify user JWT from web app button
   const authHeader = req.headers.get("Authorization") ?? "";
   const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) return new Response("Unauthorized", { status: 401 });
+  if (!jwt) return new Response("Unauthorized", { status: 401, headers: CORS });
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
-  if (authErr || !user) return new Response("Unauthorized", { status: 401 });
+  if (authErr || !user) return new Response("Unauthorized", { status: 401, headers: CORS });
 
   const neonUrl = Deno.env.get("NEON_DATABASE_URL");
   if (!neonUrl) {
     return new Response(
       JSON.stringify({ error: "NEON_DATABASE_URL secret not set" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: { ...CORS, "Content-Type": "application/json" } },
     );
   }
 
   const sql = neon(neonUrl);
 
-  // Fetch last 30 days from HealthBridge's health_daily table
   const rows: any[] = await sql(
     `SELECT * FROM health_daily
      WHERE synced_at > now() - interval '30 days'
@@ -49,7 +47,6 @@ Deno.serve(async (req) => {
       ? row.date.slice(0, 10)
       : new Date(row.date).toISOString().slice(0, 10);
 
-    // Build sleep_stages array (Neon stores in hours, convert to minutes)
     const sleepStages = [
       { stage: "Deep",  minutes: Math.round((row.sleep_deep  ?? 0) * 60) },
       { stage: "REM",   minutes: Math.round((row.sleep_rem   ?? 0) * 60) },
@@ -74,6 +71,6 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ synced, total: rows.length }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...CORS, "Content-Type": "application/json" },
   });
 });

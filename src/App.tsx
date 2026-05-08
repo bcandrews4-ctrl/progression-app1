@@ -32,7 +32,10 @@ import {
   fetchImported,
   upsertImportedWorkout,
   fetchHealth,
+  fetchBodyMetrics,
+  upsertBodyMetric,
 } from "./lib/db";
+import { calculateBodyComposition } from "./utils/bodyComposition";
 import { GlassCard } from "./components/GlassCard";
 import { PrimaryButton } from "./components/PrimaryButton";
 import { IconButton } from "./components/IconButton";
@@ -142,10 +145,33 @@ type HealthMetric = {
   dateISO: string;
   steps: number;
   sleepHours: number;
-  sleepStages?: SleepStageData[]; // Time-series sleep stage data
+  sleepStages?: SleepStageData[];
   avgBPM: number;
   caloriesBurned: number;
   activeMinutes: number;
+  hrvMs?: number | null;
+  restingBPM?: number | null;
+  vo2Max?: number | null;
+  standHours?: number | null;
+  respiratoryRate?: number | null;
+  mindfulnessMinutes?: number | null;
+};
+
+type BodyMetric = {
+  id: string;
+  dateISO: string;
+  weightKg?: number | null;
+  heightCm?: number | null;
+  neckCm?: number | null;
+  bodyFatPct?: number | null;
+  leanMassKg?: number | null;
+  waistCm?: number | null;
+  chestCm?: number | null;
+  armsCm?: number | null;
+  thighsCm?: number | null;
+  hipsCm?: number | null;
+  notes?: string | null;
+  calculationMethod?: string | null;
 };
 
 // Using design tokens from tokens.ts
@@ -540,6 +566,27 @@ function generateSleepStages(totalHours: number): SleepStageData[] {
     { stage: "REM",   minutes: Math.round(total * 0.25) },
     { stage: "Awake", minutes: Math.round(total * 0.05) },
   ];
+}
+
+function filterHealthByPeriod(data: HealthMetric[], period: '7D' | '1M' | '3M' | '6M' | '1Y'): HealthMetric[] {
+  const days = { '7D': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365 }[period];
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffISO = `${cutoff.getFullYear()}-${pad2(cutoff.getMonth() + 1)}-${pad2(cutoff.getDate())}`;
+  return data.filter(r => r.dateISO >= cutoffISO);
+}
+
+function calcReadiness(data: HealthMetric[]): number {
+  if (!data.length) return 0;
+  const today = data[0];
+  const avg30 = data.slice(0, 30).filter(r => (r.hrvMs ?? 0) > 0);
+  const avgHRV = avg30.length ? avg30.reduce((s, r) => s + (r.hrvMs ?? 0), 0) / avg30.length : 0;
+  const hrvScore = avgHRV > 0
+    ? Math.min(100, Math.round(((today.hrvMs ?? avgHRV) / avgHRV) * 100))
+    : 50;
+  const sleepScore = Math.min(100, Math.round((today.sleepHours / 8) * 100));
+  const activityScore = Math.min(100, Math.round((today.activeMinutes / 30) * 100));
+  return Math.round(hrvScore * 0.4 + sleepScore * 0.35 + activityScore * 0.25);
 }
 
 function calcLiftedTonnage(lifts: LiftEntry[]) {
@@ -1229,6 +1276,18 @@ function App() {
   const [imported, setImported] = useState<ImportedWorkout[]>(emptyData.imported);
   const [healthData, setHealthData] = useState<HealthMetric[]>(emptyData.health);
   const [healthPeriod, setHealthPeriod] = useState<HealthPeriod>("Daily");
+  const [bodyTab, setBodyTab] = useState<'health' | 'body'>('health');
+  const [healthChartPeriod, setHealthChartPeriod] = useState<'7D' | '1M' | '3M' | '6M' | '1Y'>('1M');
+  const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
+  const [bodyMetrics, setBodyMetrics] = useState<BodyMetric[]>([]);
+  const [showLogBodyModal, setShowLogBodyModal] = useState(false);
+  const [bodyLogForm, setBodyLogForm] = useState<Record<string, string>>({
+    weightKg: '', heightCm: '', neckCm: '', waistCm: '',
+    chestCm: '', armsCm: '', thighsCm: '', hipsCm: '',
+    sex: 'male', age: '', notes: '',
+  });
+  const [showBodyFatOverride, setShowBodyFatOverride] = useState(false);
+  const [bodyFatOverrideVal, setBodyFatOverrideVal] = useState('');
 
   const [journalTab, setJournalTab] = useState<JournalTab>("All");
   const [progressFilter, setProgressFilter] = useState<JournalTab>("Lifts");
@@ -1431,12 +1490,13 @@ function App() {
         }
 
         // 2. Load all data tables in parallel
-        const [liftsData, cardioData, runsData, importedData, healthRows] = await Promise.all([
+        const [liftsData, cardioData, runsData, importedData, healthRows, bodyRows] = await Promise.all([
           fetchLifts(userId),
           fetchCardio(userId),
           fetchRuns(userId),
           fetchImported(userId),
           fetchHealth(userId),
+          fetchBodyMetrics(userId),
         ]);
 
         if (cancelled) return;
@@ -1448,6 +1508,7 @@ function App() {
         if (healthRows.length > 0) {
           setHealthData(healthRows as HealthMetric[]);
         }
+        setBodyMetrics(bodyRows as BodyMetric[]);
       } catch (err) {
         console.error('[ProfileLoader] Error loading data:', err);
       } finally {
@@ -1651,16 +1712,29 @@ function App() {
   }, [lifts, cardio, runs]);
 
   const readinessScore = useMemo(() => {
-    const latest = healthData[0];
-    if (!latest) return 72;
-    const sleepScore = Math.min(100, (latest.sleepHours / 8) * 100);
-    const bpmScore = Math.max(0, 100 - Math.max(0, latest.avgBPM - 55) * 2);
-    const stepsScore = Math.min(100, (latest.steps / 10000) * 100);
-    return Math.round((sleepScore * 0.4) + (bpmScore * 0.3) + (stepsScore * 0.3));
+    if (!healthData.length) return 72;
+    return calcReadiness(healthData) || 72;
   }, [healthData]);
 
   const readinessColor = readinessScore >= 80 ? colors.green : readinessScore >= 60 ? colors.orange : colors.red;
   const showDeloadBanner = !hideDeloadBanner && stats.workouts > 24;
+
+  const liveBodyCalc = useMemo(() => {
+    const wt = parseFloat(bodyLogForm.weightKg);
+    const ht = parseFloat(bodyLogForm.heightCm);
+    if (!wt || !ht) return null;
+    const override = bodyFatOverrideVal ? parseFloat(bodyFatOverrideVal) : undefined;
+    return calculateBodyComposition({
+      weightKg: wt,
+      heightCm: ht,
+      neckCm: parseFloat(bodyLogForm.neckCm) || 0,
+      waistCm: parseFloat(bodyLogForm.waistCm) || 0,
+      hipCm: parseFloat(bodyLogForm.hipsCm) || undefined,
+      sex: (bodyLogForm.sex as 'male' | 'female') || 'male',
+      age: parseFloat(bodyLogForm.age) || 25,
+      bodyFatOverride: override,
+    });
+  }, [bodyLogForm, bodyFatOverrideVal]);
 
   const groupedLifts = useMemo(() => {
     const groups = new Map<LiftType, LiftEntry[]>();
@@ -2683,30 +2757,7 @@ function App() {
 
   // Header component
   const header = (
-    <header className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: "50%",
-            background: c.accentSoft,
-            border: `1px solid ${c.accentBorder}`,
-            display: "grid",
-            placeItems: "center",
-            fontSize: "12px",
-            fontWeight: 700,
-          }}
-        >
-          HM
-        </div>
-        <div>
-          <div className="text-xl font-semibold" style={typography.title}>Hybrid House</div>
-          <div className="text-xs mt-1" style={{ color: MUTED }}>
-            Monday · {tab}
-          </div>
-        </div>
-      </div>
+    <header className="flex items-center justify-end">
       <div className="flex items-center gap-2">
         <div
           style={{
@@ -2776,8 +2827,8 @@ function App() {
               <ReadinessCard
                 score={readinessScore}
                 sleepHours={healthData[0]?.sleepHours ?? 0}
-                hrv={Math.max(25, Math.round(80 - (healthData[0]?.avgBPM ?? 60) / 2))}
-                restingHr={healthData[0]?.avgBPM ?? 0}
+                hrv={Math.round(healthData[0]?.hrvMs ?? 0)}
+                restingHr={healthData[0]?.restingBPM ?? healthData[0]?.avgBPM ?? 0}
                 weeklyVolumeTons={stats.liftedTons}
               />
 
@@ -3263,460 +3314,597 @@ function App() {
 
           {tab === "Body" ? (
             <div className="space-y-4">
-              <div className="flex items-end justify-between">
+              {/* Header with sub-tab switcher */}
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
                 <div>
-                  <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1", marginBottom: "20px" }}>Body</div>
-                  <div className="text-xs mt-1" style={{ color: MUTED }}>
-                    Watch data synced from Apple Health
+                  <div style={{ fontSize: "30px", fontWeight: 700, color: c.text, letterSpacing: "-0.03em", lineHeight: "1.1" }}>Body</div>
+                  <div style={{ fontSize: "12px", color: MUTED, marginTop: "4px" }}>
+                    {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                   </div>
+                </div>
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  {(['health', 'body'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setBodyTab(t)}
+                      style={{
+                        padding: "7px 16px", borderRadius: radii.pill, fontSize: "13px", fontWeight: 600,
+                        border: "none", cursor: "pointer",
+                        background: bodyTab === t ? ACCENT : "rgba(255,255,255,0.07)",
+                        color: bodyTab === t ? "#fff" : MUTED,
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      {t === 'health' ? 'Health' : 'Body'}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Period Selector */}
-              <div className="flex items-center gap-2">
-                {(["Daily", "Weekly", "Monthly"] as HealthPeriod[]).map((period) => (
-                  <button
-                    key={period}
-                    onClick={() => setHealthPeriod(period)}
-                    className="px-4 py-2 text-sm font-medium transition-all duration-200"
-                    style={{
-                      borderRadius: radii.pill,
-                      ...(healthPeriod === period
-                        ? {
-                            background: ACCENT,
-                            color: TEXT,
-                          }
-                        : {
-                            background: c.cardBg2,
-                            color: MUTED,
-                          })
-                    }}
-                  >
-                    {period}
-                  </button>
-                ))}
-              </div>
+              {/* HEALTH SUB-TAB */}
+              {bodyTab === 'health' && (() => {
+                const filtered = filterHealthByPeriod(healthData, healthChartPeriod);
+                const readinessScore = calcReadiness(healthData);
+                const today = healthData[0];
 
-              {(() => {
-                const filtered = healthData.filter((h) => {
-                  const days = healthPeriod === "Daily" ? 1 : healthPeriod === "Weekly" ? 7 : 30;
-                  return withinLastDays(h.dateISO, days);
-                });
+                const avgOf = (arr: HealthMetric[], pick: (h: HealthMetric) => number) =>
+                  arr.length ? arr.reduce((s, h) => s + pick(h), 0) / arr.length : 0;
 
-                if (filtered.length === 0) {
-                  return (
-                    <div className="text-center py-8" style={{ color: MUTED }}>
-                      No health data available for this period.
-                    </div>
-                  );
-                }
+                const half = Math.ceil(filtered.length / 2);
+                const recent = filtered.slice(0, half);
+                const older = filtered.slice(half);
+                const pctDelta = (r: number, o: number) => o > 0 ? ((r - o) / o) * 100 : 0;
 
-                const latest = filtered[0]; // healthData is sorted newest-first (index 0 = today)
-                const avgSteps = filtered.reduce((sum, h) => sum + h.steps, 0) / filtered.length;
-                const avgSleep = filtered.reduce((sum, h) => sum + h.sleepHours, 0) / filtered.length;
-                const avgBPM = filtered.reduce((sum, h) => sum + h.avgBPM, 0) / filtered.length;
-                const totalCalories = filtered.reduce((sum, h) => sum + h.caloriesBurned, 0);
-                const avgCalories = totalCalories / filtered.length;
+                const recentAvgSteps = avgOf(recent, h => h.steps);
+                const olderAvgSteps = avgOf(older, h => h.steps);
+                const recentAvgSleep = avgOf(recent, h => h.sleepHours);
+                const olderAvgSleep = avgOf(older, h => h.sleepHours);
+                const recentAvgCal = avgOf(recent, h => h.caloriesBurned);
+                const olderAvgCal = avgOf(older, h => h.caloriesBurned);
+                const recentAvgActive = avgOf(recent, h => h.activeMinutes);
+                const olderAvgActive = avgOf(older, h => h.activeMinutes);
+                const recentAvgBPM = avgOf(recent, h => h.avgBPM);
+                const olderAvgBPM = avgOf(older, h => h.avgBPM);
 
-                const stepsGoal = 10000;
-                const sleepGoal = 8;
-                const stepsProgress = latest ? Math.min(latest.steps / stepsGoal, 1) : 0;
-                const sleepProgress = latest ? Math.min(latest.sleepHours / sleepGoal, 1) : 0;
+                const hrvData = filtered.filter(h => (h.hrvMs ?? 0) > 0);
+                const avgHRV = avgOf(hrvData, h => h.hrvMs ?? 0);
+                const vo2Data = filtered.filter(h => (h.vo2Max ?? 0) > 0);
+                const latestVO2 = vo2Data[0]?.vo2Max ?? null;
+
+                const sleepScore = Math.min(100, Math.round(((today?.sleepHours ?? 0) / 8) * 100));
+                const activityScore = Math.min(100, Math.round(((today?.activeMinutes ?? 0) / 30) * 100));
+                const avg30HRV = healthData.slice(0, 30).filter(h => (h.hrvMs ?? 0) > 0);
+                const avgHRV30 = avg30HRV.length ? avg30HRV.reduce((s, h) => s + (h.hrvMs ?? 0), 0) / avg30HRV.length : 0;
+                const hrvScore = avgHRV30 > 0
+                  ? Math.min(100, Math.round(((today?.hrvMs ?? avgHRV30) / avgHRV30) * 100))
+                  : 50;
+
+                type MetricKey = 'steps' | 'sleep' | 'calories' | 'active' | 'hr' | 'restingHr' | 'hrv' | 'vo2';
+                const metricCards: Array<{
+                  key: MetricKey; label: string; value: string; unit: string;
+                  delta: number | null; sparkData: number[]; color: string;
+                  higherIsBetter: boolean; show: boolean;
+                }> = [
+                  { key: 'steps', label: 'STEPS', value: Math.round(recentAvgSteps).toLocaleString(), unit: 'steps/day', delta: older.length ? pctDelta(recentAvgSteps, olderAvgSteps) : null, sparkData: filtered.slice(-14).map(h => h.steps), color: ACCENT, higherIsBetter: true, show: true },
+                  { key: 'sleep', label: 'SLEEP', value: recentAvgSleep.toFixed(1), unit: 'hrs/night', delta: older.length ? pctDelta(recentAvgSleep, olderAvgSleep) : null, sparkData: filtered.slice(-14).map(h => h.sleepHours), color: '#9B59B6', higherIsBetter: true, show: true },
+                  { key: 'calories', label: 'CALORIES', value: Math.round(recentAvgCal).toLocaleString(), unit: 'kcal/day', delta: older.length ? pctDelta(recentAvgCal, olderAvgCal) : null, sparkData: filtered.slice(-14).map(h => h.caloriesBurned), color: '#f97316', higherIsBetter: true, show: true },
+                  { key: 'active', label: 'ACTIVE MINS', value: Math.round(recentAvgActive).toString(), unit: 'min/day', delta: older.length ? pctDelta(recentAvgActive, olderAvgActive) : null, sparkData: filtered.slice(-14).map(h => h.activeMinutes), color: '#22c55e', higherIsBetter: true, show: true },
+                  { key: 'hr', label: 'AVG HEART RATE', value: Math.round(recentAvgBPM).toString(), unit: 'bpm', delta: older.length ? pctDelta(recentAvgBPM, olderAvgBPM) : null, sparkData: filtered.slice(-14).map(h => h.avgBPM), color: '#ef4444', higherIsBetter: false, show: recentAvgBPM > 0 },
+                  { key: 'restingHr', label: 'RESTING HR', value: today?.restingBPM != null ? Math.round(today.restingBPM).toString() : '—', unit: 'bpm', delta: null, sparkData: filtered.filter(h => h.restingBPM != null).slice(-14).map(h => h.restingBPM ?? 0), color: '#f43f5e', higherIsBetter: false, show: filtered.some(h => (h.restingBPM ?? 0) > 0) },
+                  { key: 'hrv', label: 'HRV', value: avgHRV > 0 ? Math.round(avgHRV).toString() : '—', unit: 'ms', delta: null, sparkData: hrvData.slice(-14).map(h => h.hrvMs ?? 0), color: '#38bdf8', higherIsBetter: true, show: hrvData.length > 0 },
+                  { key: 'vo2', label: 'VO₂ MAX', value: latestVO2 != null ? latestVO2.toFixed(1) : '—', unit: 'ml/kg/min', delta: null, sparkData: vo2Data.slice(-14).map(h => h.vo2Max ?? 0), color: '#a78bfa', higherIsBetter: true, show: vo2Data.length > 0 },
+                ];
+                const visibleCards = metricCards.filter(m => m.show);
+
+                const expandedCard = visibleCards.find(m => m.key === expandedMetric);
+                const expandedChartData = expandedCard
+                  ? filtered.map(h => ({
+                      dateISO: h.dateISO,
+                      value: expandedCard.key === 'steps' ? h.steps
+                        : expandedCard.key === 'sleep' ? h.sleepHours
+                        : expandedCard.key === 'calories' ? h.caloriesBurned
+                        : expandedCard.key === 'active' ? h.activeMinutes
+                        : expandedCard.key === 'hr' ? h.avgBPM
+                        : expandedCard.key === 'restingHr' ? (h.restingBPM ?? 0)
+                        : expandedCard.key === 'hrv' ? (h.hrvMs ?? 0)
+                        : (h.vo2Max ?? 0),
+                    })).reverse()
+                  : [];
 
                 return (
                   <>
-                    {/* Top Row: Steps, Sleep, Heart - 3 columns */}
-                    <div className="grid grid-cols-3 gap-3">
-                      {/* Steps Card */}
-                      <div style={{ 
-                        background: c.cardBg2,
-                        border: `1px solid ${c.border}`,
-                        borderRadius: radii.card,
-                        padding: spacing.cardPad,
-                        boxShadow: shadows.card,
-                        minHeight: "100px",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}>
-                        {/* Header with icon and title */}
-                        <MetricCardHeader
-                          icon={
-                            <Footprints className="w-6 h-6 sm:w-7 sm:h-7" stroke={ACCENT} strokeWidth={2.5} />
-                          }
-                          title="Steps"
-                        />
-                        {/* Body with progress ring */}
-                        <div style={{ 
-                          flex: 1, 
-                          display: "flex", 
-                          alignItems: "center", 
-                          justifyContent: "center",
-                          marginTop: "8px",
-                        }}>
-                          <div style={{ position: "relative", width: "44px", height: "44px" }}>
-                            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56" style={{ display: "block", width: "44px", height: "44px" }}>
-                              <circle
-                                cx="28"
-                                cy="28"
-                                r="22"
-                                fill="none"
-                                stroke="rgba(255,255,255,0.08)"
-                                strokeWidth="4"
-                              />
-                              <circle
-                                cx="28"
-                                cy="28"
-                                r="22"
-                                fill="none"
-                                stroke={ACCENT}
-                                strokeWidth="4"
-                                strokeDasharray={`${2 * Math.PI * 22}`}
-                                strokeDashoffset={`${2 * Math.PI * 22 * (1 - stepsProgress)}`}
-                                strokeLinecap="round"
-                                style={{ transition: "stroke-dashoffset 0.5s ease" }}
-                              />
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
-                              <div className="text-xs font-bold leading-tight" style={{ color: TEXT }}>
-                                {latest?.steps.toLocaleString() || "0"}
-                              </div>
-                              <div className="text-[7px] mt-0.5" style={{ color: MUTED }}>
-                                {Math.round(stepsProgress * 100)}%
-                              </div>
-                            </div>
+                    {/* Readiness Hero */}
+                    <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "20px", boxShadow: shadows.card }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+                        <div style={{ position: "relative", width: "92px", height: "92px", flexShrink: 0 }}>
+                          <svg viewBox="0 0 92 92" style={{ width: "92px", height: "92px", transform: "rotate(-90deg)" }}>
+                            <circle cx="46" cy="46" r="40" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
+                            <circle cx="46" cy="46" r="40" fill="none" stroke={ACCENT} strokeWidth="7"
+                              strokeDasharray={`${2 * Math.PI * 40}`}
+                              strokeDashoffset={`${2 * Math.PI * 40 * (1 - readinessScore / 100)}`}
+                              strokeLinecap="round"
+                              style={{ transition: "stroke-dashoffset 0.6s ease" }}
+                            />
+                          </svg>
+                          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ fontSize: "26px", fontWeight: 800, color: TEXT, lineHeight: 1 }}>{readinessScore}</div>
+                            <div style={{ fontSize: "9px", color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em" }}>Ready</div>
                           </div>
                         </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "15px", fontWeight: 700, color: TEXT, marginBottom: "12px" }}>Readiness</div>
+                          {[
+                            { label: 'HRV', score: hrvScore, color: '#38bdf8' },
+                            { label: 'Sleep', score: sleepScore, color: '#9B59B6' },
+                            { label: 'Activity', score: activityScore, color: '#22c55e' },
+                          ].map(({ label, score, color }) => (
+                            <div key={label} style={{ marginBottom: "9px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                                <span style={{ fontSize: "11px", color: MUTED }}>{label}</span>
+                                <span style={{ fontSize: "11px", fontWeight: 600, color: TEXT }}>{score}</span>
+                              </div>
+                              <div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.06)" }}>
+                                <div style={{ height: "4px", borderRadius: "2px", background: color, width: `${clamp(score, 0, 100)}%`, transition: "width 0.5s ease" }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
+                    </div>
 
-                      {/* Sleep Card */}
-                      <div style={{ 
-                        background: c.cardBg2,
-                        border: `1px solid ${c.border}`,
-                        borderRadius: radii.card,
-                        padding: spacing.cardPad,
-                        boxShadow: shadows.card,
-                      }}>
-                        {/* Header with icon and title */}
-                        <MetricCardHeader
-                          icon={
-                            <Moon className="w-6 h-6 sm:w-7 sm:h-7" strokeWidth={2.5} />
-                          }
-                          title="Sleep"
-                        />
-                        <div style={{ marginTop: "8px" }}>
-                        {latest?.sleepStages && latest.sleepStages.length > 0 ? (
-                          <div className="h-14 mb-1.5" style={{ width: "100%" }}>
-                            <ResponsiveContainer width="100%" height={56}>
-                              <AreaChart
-                                data={latest.sleepStages.map((s, idx) => ({
-                                  index: idx,
-                                  stage: s.stage,
-                                  minutes: s.minutes,
-                                  deep: s.stage === "Deep" ? 3 : 0,
-                                  core: s.stage === "Core" ? 2 : 0,
-                                  rem: s.stage === "REM" ? 1 : 0,
-                                  awake: s.stage === "Awake" ? 0.5 : 0,
-                                }))}
-                                margin={{ left: 0, right: 0, top: 0, bottom: 0 }}
-                              >
+                    {/* Period Selector */}
+                    <div style={{ display: "flex", gap: "6px", overflowX: "auto", paddingBottom: "2px" }}>
+                      {(['7D', '1M', '3M', '6M', '1Y'] as const).map(p => (
+                        <button key={p} onClick={() => { setHealthChartPeriod(p); setExpandedMetric(null); }} style={{ padding: "6px 14px", borderRadius: radii.pill, fontSize: "13px", fontWeight: 600, border: "none", cursor: "pointer", flexShrink: 0, background: healthChartPeriod === p ? ACCENT : "rgba(255,255,255,0.06)", color: healthChartPeriod === p ? "#fff" : MUTED, transition: "all 0.2s" }}>
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Expanded chart panel */}
+                    {expandedMetric && expandedCard && (
+                      <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "16px", boxShadow: shadows.card }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                          <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT }}>{expandedCard.label}</div>
+                          <button onClick={() => setExpandedMetric(null)} style={{ background: "rgba(255,255,255,0.07)", border: "none", cursor: "pointer", borderRadius: "50%", width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", color: MUTED, fontSize: "14px" }}>✕</button>
+                        </div>
+                        <div style={{ height: "160px" }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={expandedChartData} margin={{ left: 4, right: 4, top: 8, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="expandedGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={expandedCard.color} stopOpacity={0.35} />
+                                  <stop offset="100%" stopColor={expandedCard.color} stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                              <XAxis dataKey="dateISO" tickFormatter={formatDateShort} tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                              <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} width={36} />
+                              <Tooltip contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "8px", color: TEXT }} labelStyle={{ color: MUTED }} formatter={(val: any) => [`${typeof val === 'number' ? val.toLocaleString() : val} ${expandedCard.unit}`, '']} />
+                              <Area type="monotone" dataKey="value" stroke={expandedCard.color} strokeWidth={2} fill="url(#expandedGrad)" dot={false} isAnimationActive={false} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Metric cards grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {visibleCards.map(m => {
+                        const isExpanded = expandedMetric === m.key;
+                        const sparkPoints = m.sparkData.filter(v => v > 0);
+                        const sparkChartData = m.sparkData.map((v, i) => ({ i, v }));
+                        return (
+                          <div key={m.key} onClick={() => setExpandedMetric(isExpanded ? null : m.key)} style={{ background: c.cardBg2, border: `1px solid ${isExpanded ? m.color + '55' : c.border}`, borderRadius: "14px", padding: "14px", cursor: "pointer", transition: "all 0.2s", boxShadow: isExpanded ? `0 0 0 1px ${m.color}33` : shadows.card }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                              <div style={{ fontSize: "10px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em" }}>{m.label}</div>
+                              {m.delta !== null && (
+                                <div style={{ fontSize: "10px", fontWeight: 700, color: (m.higherIsBetter ? m.delta >= 0 : m.delta <= 0) ? '#22c55e' : '#ef4444', background: (m.higherIsBetter ? m.delta >= 0 : m.delta <= 0) ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', padding: "2px 5px", borderRadius: "4px" }}>
+                                  {m.delta >= 0 ? '↑' : '↓'} {Math.abs(m.delta).toFixed(1)}%
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "8px" }}>
+                              <span style={{ fontSize: "26px", fontWeight: 800, color: TEXT, lineHeight: 1 }}>{m.value}</span>
+                              <span style={{ fontSize: "11px", color: MUTED }}>{m.unit}</span>
+                            </div>
+                            {sparkPoints.length > 1 && (
+                              <div style={{ height: "38px", margin: "0 -4px" }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={sparkChartData} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
+                                    <Line type="monotone" dataKey="v" stroke={m.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Sleep stages chart */}
+                    {(() => {
+                      const weekData = healthData.slice(0, 7).filter(h => h.sleepStages && h.sleepStages.length > 0);
+                      if (!weekData.length) return null;
+                      const chartData = weekData.map(h => {
+                        const stageMap: Record<string, number> = {};
+                        (h.sleepStages ?? []).forEach(s => { stageMap[s.stage] = s.minutes; });
+                        return { dateISO: h.dateISO, Deep: stageMap['Deep'] ?? 0, Core: stageMap['Core'] ?? 0, REM: stageMap['REM'] ?? 0, Awake: stageMap['Awake'] ?? 0 };
+                      }).reverse();
+                      return (
+                        <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: spacing.cardPad, boxShadow: shadows.card }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT }}>Sleep Stages</div>
+                            <div style={{ display: "flex", gap: "10px" }}>
+                              {[{ l: 'Deep', c: ACCENT }, { l: 'Core', c: '#9B59B6' }, { l: 'REM', c: '#E91E63' }, { l: 'Awake', c: '#FFC107' }].map(({ l, c: col }) => (
+                                <div key={l} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <div style={{ width: "7px", height: "7px", borderRadius: "2px", background: col }} />
+                                  <span style={{ fontSize: "10px", color: MUTED }}>{l}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ height: "140px" }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={chartData} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
                                 <defs>
-                                  <linearGradient id="sleepDeep" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#0000FF" stopOpacity={0.8} />
-                                    <stop offset="100%" stopColor="#0000FF" stopOpacity={0.3} />
-                                  </linearGradient>
-                                  <linearGradient id="sleepCore" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#9B59B6" stopOpacity={0.8} />
-                                    <stop offset="100%" stopColor="#9B59B6" stopOpacity={0.3} />
-                                  </linearGradient>
-                                  <linearGradient id="sleepREM" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#E91E63" stopOpacity={0.8} />
-                                    <stop offset="100%" stopColor="#E91E63" stopOpacity={0.3} />
-                                  </linearGradient>
-                                  <linearGradient id="sleepAwake" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#FFC107" stopOpacity={0.8} />
-                                    <stop offset="100%" stopColor="#FFC107" stopOpacity={0.3} />
-                                  </linearGradient>
+                                  <linearGradient id="slpDeep" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={ACCENT} stopOpacity={0.8} /><stop offset="100%" stopColor={ACCENT} stopOpacity={0.3} /></linearGradient>
+                                  <linearGradient id="slpCore" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9B59B6" stopOpacity={0.8} /><stop offset="100%" stopColor="#9B59B6" stopOpacity={0.3} /></linearGradient>
+                                  <linearGradient id="slpREM" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#E91E63" stopOpacity={0.8} /><stop offset="100%" stopColor="#E91E63" stopOpacity={0.3} /></linearGradient>
+                                  <linearGradient id="slpAwake" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FFC107" stopOpacity={0.8} /><stop offset="100%" stopColor="#FFC107" stopOpacity={0.3} /></linearGradient>
                                 </defs>
-                                <Area
-                                  type="stepAfter"
-                                  dataKey="deep"
-                                  stackId="1"
-                                  stroke="#0000FF"
-                                  strokeWidth={1}
-                                  fill="url(#sleepDeep)"
-                                  isAnimationActive={false}
-                                />
-                                <Area
-                                  type="stepAfter"
-                                  dataKey="core"
-                                  stackId="1"
-                                  stroke="#9B59B6"
-                                  strokeWidth={1}
-                                  fill="url(#sleepCore)"
-                                  isAnimationActive={false}
-                                />
-                                <Area
-                                  type="stepAfter"
-                                  dataKey="rem"
-                                  stackId="1"
-                                  stroke="#E91E63"
-                                  strokeWidth={1}
-                                  fill="url(#sleepREM)"
-                                  isAnimationActive={false}
-                                />
-                                <Area
-                                  type="stepAfter"
-                                  dataKey="awake"
-                                  stackId="1"
-                                  stroke="#FFC107"
-                                  strokeWidth={1}
-                                  fill="url(#sleepAwake)"
-                                  isAnimationActive={false}
-                                />
+                                <XAxis dataKey="dateISO" tickFormatter={formatDateShort} tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "8px", color: TEXT }} formatter={(val: any, name: string) => [`${Math.round(val)} min`, name]} />
+                                <Area type="monotone" dataKey="Deep" stackId="1" stroke={ACCENT} fill="url(#slpDeep)" strokeWidth={1} isAnimationActive={false} />
+                                <Area type="monotone" dataKey="Core" stackId="1" stroke="#9B59B6" fill="url(#slpCore)" strokeWidth={1} isAnimationActive={false} />
+                                <Area type="monotone" dataKey="REM" stackId="1" stroke="#E91E63" fill="url(#slpREM)" strokeWidth={1} isAnimationActive={false} />
+                                <Area type="monotone" dataKey="Awake" stackId="1" stroke="#FFC107" fill="url(#slpAwake)" strokeWidth={1} isAnimationActive={false} />
                               </AreaChart>
                             </ResponsiveContainer>
                           </div>
-                        ) : (
-                          <div className="h-14 mb-1.5 flex items-center justify-center text-[8px]" style={{ color: MUTED }}>
-                            No sleep data
-                          </div>
-                        )}
-                        <div className="text-center">
-                          <div className="text-xs font-bold" style={{ color: TEXT }}>
-                            {latest?.sleepHours.toFixed(1) || "0.0"}h
-                          </div>
                         </div>
-                        </div>
-                      </div>
+                      );
+                    })()}
 
-                      {/* Heart Rate Card */}
-                      <div style={{ 
-                        background: c.cardBg2,
-                        border: `1px solid ${c.border}`,
-                        borderRadius: radii.card,
-                        padding: spacing.cardPad,
-                        boxShadow: shadows.card,
-                      }}>
-                        {/* Header with icon and title */}
-                        <MetricCardHeader
-                          icon={
-                            <Heart className="w-6 h-6 sm:w-7 sm:h-7" strokeWidth={2.5} />
-                          }
-                          title="Heart"
-                        />
-                        <div style={{ marginTop: "8px" }}>
-                        <div className="h-14 mb-1.5 flex items-center justify-center overflow-hidden">
-                          <svg className="w-full h-full" viewBox="0 0 100 25" preserveAspectRatio="none">
-                            <polyline
-                              points={filtered.slice(-7).map((h, idx) => {
-                                const x = (idx / 6) * 100;
-                                const normalizedBPM = Math.max(60, Math.min(100, h.avgBPM));
-                                const y = 25 - ((normalizedBPM - 60) / 40) * 25;
-                                return `${x},${Math.max(2, Math.min(23, y))}`;
-                              }).join(" ")}
-                              fill="none"
-                              stroke={ACCENT}
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </div>
-                        <div className="text-center">
-                          <div className="text-xs font-bold" style={{ color: TEXT }}>
-                            {latest?.avgBPM || 0} bpm
-                          </div>
-                        </div>
+                    {/* Recent imported workouts */}
+                    {imported.length > 0 && (
+                      <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: spacing.cardPad, boxShadow: shadows.card }}>
+                        <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT, marginBottom: "12px" }}>Recent Workouts</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                          {imported.slice(0, 5).map(w => (
+                            <div key={w.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                              <div style={{ width: "36px", height: "36px", borderRadius: "10px", flexShrink: 0, background: "rgba(0,0,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" }}>
+                                {w.workoutType === 'Strength' ? '🏋️' : w.workoutType === 'Cardio' ? '🚴' : '🏃'}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: "13px", fontWeight: 600, color: TEXT }}>{w.workoutType}</div>
+                                <div style={{ fontSize: "11px", color: MUTED }}>{formatDateShort(w.dateISO)} · {w.minutes} min{w.activeCalories ? ` · ${w.activeCalories} kcal` : ''}</div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    </div>
-
-                    {/* Stats Grid - 2x2 */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <HealthMetricTile
-                        title="Heart Rate"
-                        value={String(Math.round(avgBPM))}
-                        unit="bpm"
-                        icon={
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-                          </svg>
-                        }
-                        variant="full"
-                      />
-
-                      <HealthMetricTile
-                        title="Calories"
-                        value={String(Math.round(avgCalories))}
-                        unit=""
-                        icon={
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <circle cx="12" cy="12" r="6" />
-                          </svg>
-                        }
-                        subLabel={healthPeriod === "Daily" ? "today" : "avg/day"}
-                        variant="full"
-                      />
-
-                      <HealthMetricTile
-                        title="Steps"
-                        value={Math.round(avgSteps).toLocaleString()}
-                        unit=""
-                        icon={
-                          <Footprints className="w-4 h-4" stroke={ACCENT} strokeWidth={2} style={{ opacity: 0.95 }} />
-                        }
-                        subLabel={healthPeriod === "Daily" ? "today" : "avg/day"}
-                        variant="full"
-                      />
-
-                      <HealthMetricTile
-                        title="Active"
-                        value={String(Math.round(filtered.reduce((sum, h) => sum + h.activeMinutes, 0) / filtered.length))}
-                        unit="minutes"
-                        icon={
-                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                        }
-                        variant="full"
-                      />
-                    </div>
-
-                    {/* Charts */}
-                    <div style={{ 
-                      background: c.cardBg2,
-                      border: `1px solid ${c.border}`,
-                      borderRadius: radii.card,
-                      padding: spacing.cardPad,
-                      boxShadow: shadows.card,
-                    }}>
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="text-sm font-semibold" style={{ color: TEXT }}>Steps Trend</div>
-                        <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
-                      </div>
-                      <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={filtered.slice(-7)} margin={{ left: 6, right: 6, top: 10, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="stepsArea" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
-                                <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                            <XAxis
-                              dataKey="dateISO"
-                              tickFormatter={(v) => formatDateShort(v)}
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                            />
-                            <YAxis
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                              width={40}
-                            />
-                            <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
-                              labelStyle={{ color: MUTED }}
-                              formatter={(val: any) => [`${val.toLocaleString()} steps`, ""]}
-                            />
-                            <Area type="monotone" dataKey="steps" stroke={ACCENT} strokeWidth={2} fill="url(#stepsArea)" />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    <div style={{ 
-                      background: c.cardBg2,
-                      border: `1px solid ${c.border}`,
-                      borderRadius: radii.card,
-                      padding: spacing.cardPad,
-                      boxShadow: shadows.card,
-                    }}>
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="text-sm font-semibold" style={{ color: TEXT }}>Heart Rate</div>
-                        <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
-                      </div>
-                      <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={filtered.slice(-7)} margin={{ left: 6, right: 6, top: 10, bottom: 0 }}>
-                            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                            <XAxis
-                              dataKey="dateISO"
-                              tickFormatter={(v) => formatDateShort(v)}
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                            />
-                            <YAxis
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                              width={40}
-                            />
-                            <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
-                              labelStyle={{ color: MUTED }}
-                              formatter={(val: any) => [`${val} bpm`, ""]}
-                            />
-                            <Line 
-                              type="monotone" 
-                              dataKey="avgBPM" 
-                              stroke={ACCENT} 
-                              strokeWidth={2} 
-                              dot={{ r: 3, fill: ACCENT }}
-                              activeDot={{ r: 5, fill: ACCENT }}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    <div style={{ 
-                      background: c.cardBg2,
-                      border: `1px solid ${c.border}`,
-                      borderRadius: radii.card,
-                      padding: spacing.cardPad,
-                      boxShadow: shadows.card,
-                    }}>
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="text-sm font-semibold" style={{ color: TEXT }}>Sleep Hours</div>
-                        <div className="text-xs" style={{ color: MUTED }}>Last 7 days</div>
-                      </div>
-                      <div className="h-44">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={filtered.slice(-7)} margin={{ left: 6, right: 6, top: 10, bottom: 0 }}>
-                            <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                            <XAxis
-                              dataKey="dateISO"
-                              tickFormatter={(v) => formatDateShort(v)}
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                            />
-                            <YAxis
-                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
-                              axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                              tickLine={false}
-                              width={40}
-                            />
-                            <Tooltip
-                              contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: radii.input, color: TEXT }}
-                              labelStyle={{ color: MUTED }}
-                              formatter={(val: any) => [`${val.toFixed(1)}h`, ""]}
-                            />
-                            <Bar dataKey="sleepHours" fill={ACCENT} radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                    )}
                   </>
                 );
               })()}
+
+              {/* BODY COMP SUB-TAB */}
+              {bodyTab === 'body' && (() => {
+                const latest = bodyMetrics[0];
+
+                // Resolve body fat and lean mass — use stored value if present,
+                // otherwise calculate on-the-fly from whatever measurements exist
+                const resolvedBF = (() => {
+                  if (latest?.bodyFatPct != null) return { value: latest.bodyFatPct, estimated: false };
+                  if (latest?.weightKg && latest?.heightCm) {
+                    const calc = calculateBodyComposition({
+                      weightKg: latest.weightKg,
+                      heightCm: latest.heightCm,
+                      neckCm: latest.neckCm ?? 0,
+                      waistCm: latest.waistCm ?? 0,
+                      hipCm: latest.hipsCm ?? undefined,
+                      sex: 'male',
+                      age: 30,
+                    });
+                    return { value: calc.bodyFatPercent, estimated: true };
+                  }
+                  return null;
+                })();
+                const resolvedLM = (() => {
+                  if (latest?.leanMassKg != null) return { value: latest.leanMassKg, estimated: false };
+                  if (resolvedBF && latest?.weightKg) {
+                    return { value: Math.round((latest.weightKg * (1 - resolvedBF.value / 100)) * 10) / 10, estimated: resolvedBF.estimated };
+                  }
+                  return null;
+                })();
+
+                const bmi = (latest?.weightKg != null && latest?.heightCm != null && latest.heightCm > 0)
+                  ? latest.weightKg / ((latest.heightCm / 100) ** 2) : null;
+                const bmiPct = bmi != null ? clamp(((bmi - 15) / 25) * 100, 0, 100) : null;
+                const weightChartData = bodyMetrics.slice(0, 30).map(b => ({ dateISO: b.dateISO, value: b.weightKg ?? 0 })).filter(d => d.value > 0).reverse();
+                const bfChartData = bodyMetrics.slice(0, 30).map(b => ({ dateISO: b.dateISO, value: b.bodyFatPct ?? 0 })).filter(d => d.value > 0).reverse();
+
+                const openLogModal = () => {
+                  const prev = bodyMetrics[0];
+                  setBodyLogForm({
+                    weightKg: prev?.weightKg?.toString() ?? '',
+                    heightCm: prev?.heightCm?.toString() ?? '',
+                    neckCm: prev?.neckCm?.toString() ?? '',
+                    waistCm: prev?.waistCm?.toString() ?? '',
+                    chestCm: prev?.chestCm?.toString() ?? '',
+                    armsCm: prev?.armsCm?.toString() ?? '',
+                    thighsCm: prev?.thighsCm?.toString() ?? '',
+                    hipsCm: prev?.hipsCm?.toString() ?? '',
+                    sex: 'male',
+                    age: '',
+                    notes: '',
+                  });
+                  setShowBodyFatOverride(false);
+                  setBodyFatOverrideVal('');
+                  setShowLogBodyModal(true);
+                };
+
+                return (
+                  <>
+                    {bodyMetrics.length === 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "48px 20px", textAlign: "center" }}>
+                        <div style={{ fontSize: "48px", marginBottom: "16px" }}>📊</div>
+                        <div style={{ fontSize: "18px", fontWeight: 700, color: TEXT, marginBottom: "8px" }}>No body data yet</div>
+                        <div style={{ fontSize: "14px", color: MUTED, marginBottom: "24px", maxWidth: "240px", lineHeight: 1.6 }}>
+                          Log your first body composition entry to start tracking your progress.
+                        </div>
+                        <button onClick={openLogModal} style={{ padding: "12px 28px", borderRadius: radii.pill, background: ACCENT, color: "#fff", border: "none", fontWeight: 700, fontSize: "15px", cursor: "pointer" }}>
+                          Log First Entry
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Key stats row */}
+                        <div className="grid grid-cols-3 gap-3">
+                          {[
+                            { label: 'WEIGHT', value: latest?.weightKg != null ? latest.weightKg.toFixed(1) : '—', unit: 'kg', est: false },
+                            { label: 'BODY FAT', value: resolvedBF ? resolvedBF.value.toFixed(1) : '—', unit: '%', est: resolvedBF?.estimated ?? false },
+                            { label: 'LEAN MASS', value: resolvedLM ? resolvedLM.value.toFixed(1) : '—', unit: 'kg', est: resolvedLM?.estimated ?? false },
+                          ].map(({ label, value, unit, est }) => (
+                            <div key={label} style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: "14px", padding: "14px", boxShadow: shadows.card }}>
+                              <div style={{ fontSize: "10px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>{label}{est && <span style={{ fontSize: "9px", color: MUTED, fontWeight: 400, marginLeft: "4px" }}>est.</span>}</div>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: "3px" }}>
+                                <span style={{ fontSize: "20px", fontWeight: 800, color: TEXT }}>{value}</span>
+                                <span style={{ fontSize: "11px", color: MUTED }}>{unit}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* BMI indicator */}
+                        {bmi != null && (
+                          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: "16px", boxShadow: shadows.card }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: TEXT }}>BMI</div>
+                              <div style={{ fontSize: "13px", fontWeight: 700, color: TEXT }}>{bmi.toFixed(1)} — {bmi < 18.5 ? 'Underweight' : bmi < 25 ? 'Healthy' : bmi < 30 ? 'Overweight' : 'Obese'}</div>
+                            </div>
+                            <div style={{ position: "relative", height: "10px", borderRadius: "5px", overflow: "hidden", display: "flex" }}>
+                              <div style={{ flex: 1, background: "#38bdf8" }} />
+                              <div style={{ flex: 2.5, background: "#22c55e" }} />
+                              <div style={{ flex: 2, background: "#f97316" }} />
+                              <div style={{ flex: 1.5, background: "#ef4444" }} />
+                            </div>
+                            {bmiPct != null && (
+                              <div style={{ position: "relative", height: "10px" }}>
+                                <div style={{ position: "absolute", left: `${bmiPct}%`, transform: "translateX(-50%) translateY(-50%)", width: "14px", height: "14px", background: TEXT, borderRadius: "50%", border: `2px solid ${c.cardBg2}`, transition: "left 0.4s ease" }} />
+                              </div>
+                            )}
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
+                              {[{ l: 'Under', v: '< 18.5', col: '#38bdf8' }, { l: 'Healthy', v: '18.5–25', col: '#22c55e' }, { l: 'Over', v: '25–30', col: '#f97316' }, { l: 'Obese', v: '≥ 30', col: '#ef4444' }].map(z => (
+                                <div key={z.l} style={{ textAlign: 'center' }}>
+                                  <div style={{ fontSize: "9px", fontWeight: 600, color: z.col }}>{z.l}</div>
+                                  <div style={{ fontSize: "9px", color: MUTED }}>{z.v}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Weight trend */}
+                        {weightChartData.length > 1 && (
+                          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: spacing.cardPad, boxShadow: shadows.card }}>
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT, marginBottom: "12px" }}>Weight Trend</div>
+                            <div style={{ height: "140px" }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={weightChartData} margin={{ left: 4, right: 4, top: 8, bottom: 0 }}>
+                                  <defs>
+                                    <linearGradient id="wtGrad" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
+                                      <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                                    </linearGradient>
+                                  </defs>
+                                  <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                                  <XAxis dataKey="dateISO" tickFormatter={formatDateShort} tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                                  <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} width={36} domain={['auto', 'auto']} />
+                                  <Tooltip contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "8px", color: TEXT }} formatter={(val: any) => [`${val} kg`, 'Weight']} />
+                                  <Area type="monotone" dataKey="value" stroke={ACCENT} strokeWidth={2} fill="url(#wtGrad)" dot={false} isAnimationActive={false} />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Body fat trend */}
+                        {bfChartData.length > 1 && (
+                          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: spacing.cardPad, boxShadow: shadows.card }}>
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT, marginBottom: "12px" }}>Body Fat %</div>
+                            <div style={{ height: "120px" }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={bfChartData} margin={{ left: 4, right: 4, top: 8, bottom: 0 }}>
+                                  <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                                  <XAxis dataKey="dateISO" tickFormatter={formatDateShort} tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                                  <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} axisLine={false} tickLine={false} width={36} domain={['auto', 'auto']} />
+                                  <Tooltip contentStyle={{ background: "rgba(10,10,14,0.95)", border: `1px solid ${BORDER}`, borderRadius: "8px", color: TEXT }} formatter={(val: any) => [`${val}%`, 'Body Fat']} />
+                                  <Line type="monotone" dataKey="value" stroke="#f97316" strokeWidth={2} dot={{ r: 3, fill: '#f97316' }} isAnimationActive={false} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Measurements grid */}
+                        {latest && [latest.waistCm, latest.chestCm, latest.armsCm, latest.thighsCm, latest.hipsCm].some(v => v != null) && (
+                          <div style={{ background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: radii.card, padding: spacing.cardPad, boxShadow: shadows.card }}>
+                            <div style={{ fontSize: "14px", fontWeight: 700, color: TEXT, marginBottom: "12px" }}>Measurements</div>
+                            <div className="grid grid-cols-2 gap-3">
+                              {[
+                                { label: 'Waist', value: latest.waistCm },
+                                { label: 'Chest', value: latest.chestCm },
+                                { label: 'Arms', value: latest.armsCm },
+                                { label: 'Thighs', value: latest.thighsCm },
+                                { label: 'Hips', value: latest.hipsCm },
+                              ].filter(m => m.value != null).map(({ label, value }) => (
+                                <div key={label} style={{ padding: "10px 12px", background: "rgba(255,255,255,0.03)", borderRadius: "10px", border: `1px solid ${BORDER}` }}>
+                                  <div style={{ fontSize: "10px", color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>{label}</div>
+                                  <div style={{ fontSize: "18px", fontWeight: 700, color: TEXT }}>{value}<span style={{ fontSize: "11px", color: MUTED }}> cm</span></div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Log entry button */}
+                    <button onClick={openLogModal} style={{ width: "100%", padding: "14px", borderRadius: radii.pill, background: ACCENT, color: "#fff", border: "none", fontWeight: 700, fontSize: "15px", cursor: "pointer" }}>
+                      {bodyMetrics.length === 0 ? 'Log First Entry' : 'Log New Entry'}
+                    </button>
+                  </>
+                );
+              })()}
+
+              {/* BODY LOG MODAL */}
+              {showLogBodyModal && (
+                <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={() => setShowLogBodyModal(false)}>
+                  <div style={{ width: "100%", maxWidth: "480px", background: c.cardBg2, border: `1px solid ${c.border}`, borderRadius: "24px 24px 0 0", padding: "24px", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: TEXT }}>Log Body Entry</div>
+                      <button onClick={() => setShowLogBodyModal(false)} style={{ background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer", borderRadius: "50%", width: "32px", height: "32px", color: MUTED, fontSize: "16px" }}>✕</button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                      {/* Sex + Age row */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>Sex</div>
+                          <div style={{ display: "flex", borderRadius: "10px", overflow: "hidden", border: `1px solid ${BORDER}` }}>
+                            {(['male', 'female'] as const).map(s => (
+                              <button key={s} onClick={() => setBodyLogForm(f => ({ ...f, sex: s }))} style={{ flex: 1, padding: "10px", background: bodyLogForm.sex === s ? ACCENT : "rgba(255,255,255,0.04)", color: bodyLogForm.sex === s ? "#fff" : MUTED, border: "none", cursor: "pointer", fontSize: "13px", fontWeight: 600, textTransform: "capitalize", fontFamily: "inherit" }}>{s}</button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>Age</div>
+                          <input type="number" value={bodyLogForm.age} onChange={e => setBodyLogForm(f => ({ ...f, age: e.target.value }))} placeholder="25" style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: "14px", outline: "none", boxSizing: "border-box" }} />
+                        </div>
+                      </div>
+                      {/* Weight + Height row */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                        {[{ key: 'weightKg', label: 'Weight (kg)', placeholder: '75.0' }, { key: 'heightCm', label: 'Height (cm)', placeholder: '180' }].map(({ key, label, placeholder }) => (
+                          <div key={key}>
+                            <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>{label}</div>
+                            <input type="number" value={bodyLogForm[key]} onChange={e => setBodyLogForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder} style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: "14px", outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                        ))}
+                      </div>
+                      {/* Measurements */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                        {[
+                          { key: 'neckCm', label: 'Neck (cm)', placeholder: '38' },
+                          { key: 'waistCm', label: 'Waist (cm)', placeholder: '85' },
+                          { key: 'hipsCm', label: 'Hips (cm)', placeholder: '95' },
+                          { key: 'chestCm', label: 'Chest (cm)', placeholder: '100' },
+                          { key: 'armsCm', label: 'Arms (cm)', placeholder: '35' },
+                          { key: 'thighsCm', label: 'Thighs (cm)', placeholder: '55' },
+                        ].map(({ key, label, placeholder }) => (
+                          <div key={key}>
+                            <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>{label}</div>
+                            <input type="number" value={bodyLogForm[key]} onChange={e => setBodyLogForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder} style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: "14px", outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Live calculated results card */}
+                      <div style={{ background: "#141414", border: `1px solid ${BORDER}`, borderRadius: "12px", padding: "16px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "14px" }}>Calculated</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                          {[
+                            { label: 'Body Fat', value: liveBodyCalc ? `${liveBodyCalc.bodyFatPercent}` : '—', unit: '%' },
+                            { label: 'Lean Mass', value: liveBodyCalc ? `${liveBodyCalc.leanMassKg}` : '—', unit: 'kg' },
+                            { label: 'BMI', value: liveBodyCalc ? `${liveBodyCalc.bmi}` : '—', unit: '' },
+                          ].map(({ label, value, unit }) => (
+                            <div key={label} style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: "10px", color: MUTED, marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+                              <div style={{ fontSize: "22px", fontWeight: 800, color: TEXT, lineHeight: 1 }}>{value}<span style={{ fontSize: "13px", color: MUTED, fontWeight: 400, marginLeft: "2px" }}>{unit}</span></div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: "11px", color: MUTED, marginBottom: "10px" }}>
+                          {liveBodyCalc ? `Method: ${liveBodyCalc.method === 'navy' ? 'US Navy' : liveBodyCalc.method === 'deurenberg' ? 'Deurenberg (BMI-based)' : 'Manual entry'}` : 'Enter weight and neck to calculate'}
+                        </div>
+                        <button onClick={() => setShowBodyFatOverride(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: MUTED, textDecoration: "underline", padding: 0, fontFamily: "inherit" }}>
+                          {showBodyFatOverride ? 'Use auto-calculation' : '↓ Override Body Fat % (DEXA / InBody)'}
+                        </button>
+                        {showBodyFatOverride && (
+                          <div style={{ marginTop: "10px" }}>
+                            <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>Body Fat % (manual)</div>
+                            <input type="number" value={bodyFatOverrideVal} onChange={e => setBodyFatOverrideVal(e.target.value)} placeholder="e.g. 14.2" style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: "14px", outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                        )}
+                        <div style={{ marginTop: "10px", fontSize: "11px", color: MUTED, lineHeight: 1.5 }}>
+                          Estimates use the US Navy method. For clinical accuracy, use DEXA and tap Override.
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: MUTED, marginBottom: "6px" }}>Notes</div>
+                        <textarea value={bodyLogForm['notes']} onChange={e => setBodyLogForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional notes..." rows={2} style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", background: "rgba(255,255,255,0.04)", border: `1px solid ${BORDER}`, color: TEXT, fontSize: "14px", outline: "none", resize: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!session?.user?.id) return;
+                        const entry = {
+                          dateISO: todayISO(),
+                          weightKg: bodyLogForm.weightKg ? Number(bodyLogForm.weightKg) : null,
+                          heightCm: bodyLogForm.heightCm ? Number(bodyLogForm.heightCm) : null,
+                          neckCm: bodyLogForm.neckCm ? Number(bodyLogForm.neckCm) : null,
+                          bodyFatPct: liveBodyCalc?.bodyFatPercent ?? null,
+                          leanMassKg: liveBodyCalc?.leanMassKg ?? null,
+                          waistCm: bodyLogForm.waistCm ? Number(bodyLogForm.waistCm) : null,
+                          chestCm: bodyLogForm.chestCm ? Number(bodyLogForm.chestCm) : null,
+                          armsCm: bodyLogForm.armsCm ? Number(bodyLogForm.armsCm) : null,
+                          thighsCm: bodyLogForm.thighsCm ? Number(bodyLogForm.thighsCm) : null,
+                          hipsCm: bodyLogForm.hipsCm ? Number(bodyLogForm.hipsCm) : null,
+                          notes: bodyLogForm.notes || null,
+                          calculationMethod: liveBodyCalc?.method ?? null,
+                        };
+                        try {
+                          await upsertBodyMetric(session.user.id, entry);
+                          const fresh = await fetchBodyMetrics(session.user.id);
+                          setBodyMetrics(fresh as BodyMetric[]);
+                          setShowLogBodyModal(false);
+                          setShowBodyFatOverride(false);
+                          setBodyFatOverrideVal('');
+                          showToast('Entry saved!', 'success');
+                        } catch (err) {
+                          console.error(err);
+                          showToast('Failed to save. Please try again.', 'error');
+                        }
+                      }}
+                      style={{ width: "100%", marginTop: "20px", padding: "14px", borderRadius: radii.pill, background: ACCENT, color: "#fff", border: "none", fontWeight: 700, fontSize: "15px", cursor: "pointer" }}
+                    >
+                      Save Entry
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
           ) : null}
 
@@ -3806,14 +3994,26 @@ function App() {
                   </div>
                 </div>
 
-                <div style={{ fontSize: "13px", color: MUTED, marginBottom: "14px", lineHeight: 1.7 }}>
-                  <div style={{ fontWeight: 600, color: TEXT, marginBottom: "6px" }}>HealthBridge setup</div>
-                  <ol style={{ margin: "0 0 10px", paddingLeft: "18px" }}>
-                    <li>Create a free database at <b>neon.tech</b> (GitHub login, no card).</li>
-                    <li>Copy the Neon connection string and paste it into the HealthBridge app on your iPhone.</li>
-                    <li>Tap Sync in HealthBridge — your Apple Health data flows to Neon.</li>
-                    <li>Tap <b>Sync from HealthBridge</b> below to pull it into Progression.</li>
-                  </ol>
+                {/* How to connect HealthBridge */}
+                <div style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${c.border}`, borderRadius: "12px", padding: "14px", marginBottom: "14px" }}>
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "10px" }}>How to connect HealthBridge</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {[
+                      { n: '1', text: 'Download the HealthBridge app on your iPhone' },
+                      { n: '2', text: 'Open HealthBridge → Settings → Database' },
+                      { n: '3', text: 'Paste the connection URL below into HealthBridge' },
+                      { n: '4', text: 'HealthBridge syncs automatically — tap "Sync from HealthBridge" below to pull data into the app' },
+                    ].map(({ n, text }) => (
+                      <div key={n} style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                        <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: c.accentSoft, border: `1px solid ${c.accentBorder}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: "11px", fontWeight: 700, color: TEXT }}>{n}</div>
+                        <div style={{ fontSize: "13px", color: MUTED, lineHeight: 1.5 }}>{text}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: "12px", fontSize: "12px", color: MUTED, lineHeight: 1.5 }}>
+                    <span style={{ fontWeight: 600, color: TEXT }}>Syncs: </span>
+                    Steps · Sleep · Heart Rate · HRV · Calories · Active Minutes · Workouts · VO₂ Max · Resting HR
+                  </div>
                 </div>
 
                 {/* Sync from Neon button */}
@@ -3850,49 +4050,22 @@ function App() {
                   )}
                 </div>
 
-                {/* Sync token row */}
-                <div style={{ marginBottom: "10px" }}>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-                    Your sync token
-                  </div>
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: "8px",
-                    background: "rgba(255,255,255,0.04)", border: `1px solid ${c.border}`,
-                    borderRadius: "10px", padding: "10px 12px",
-                  }}>
-                    <span style={{ flex: 1, fontSize: "12px", color: TEXT, fontFamily: "monospace", letterSpacing: "0.03em", wordBreak: "break-all" }}>
-                      {profileSyncToken ?? "—"}
-                    </span>
-                    <button
-                      onClick={() => {
-                        if (!profileSyncToken) return;
-                        navigator.clipboard.writeText(profileSyncToken);
-                        setSyncTokenCopied(true);
-                        setTimeout(() => setSyncTokenCopied(false), 2000);
-                      }}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "2px", flexShrink: 0, color: syncTokenCopied ? c.green : MUTED }}
-                    >
-                      {syncTokenCopied ? <Check size={15} /> : <Copy size={15} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Endpoint URL row */}
+                {/* Database URL row */}
                 <div>
                   <div style={{ fontSize: "11px", fontWeight: 600, color: MUTED, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-                    Endpoint URL
+                    Database URL
                   </div>
                   <div style={{
                     display: "flex", alignItems: "center", gap: "8px",
                     background: "rgba(255,255,255,0.04)", border: `1px solid ${c.border}`,
                     borderRadius: "10px", padding: "10px 12px",
                   }}>
-                    <span style={{ flex: 1, fontSize: "11px", color: MUTED, fontFamily: "monospace", wordBreak: "break-all" }}>
-                      https://fjfyglqsnbhhclbbdllu.supabase.co/functions/v1/ingest-health
+                    <span style={{ flex: 1, fontSize: "11px", color: TEXT, fontFamily: "monospace", wordBreak: "break-all" }}>
+                      postgresql://neondb_owner:npg_X4unfTV5Qysr@ep-tiny-water-ap48hjjd.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require
                     </span>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText("https://fjfyglqsnbhhclbbdllu.supabase.co/functions/v1/ingest-health");
+                        navigator.clipboard.writeText("postgresql://neondb_owner:npg_X4unfTV5Qysr@ep-tiny-water-ap48hjjd.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require");
                         setSyncUrlCopied(true);
                         setTimeout(() => setSyncUrlCopied(false), 2000);
                       }}
