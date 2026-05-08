@@ -30,6 +30,7 @@ import {
   insertRun,
   deleteRun,
   fetchImported,
+  upsertImportedWorkout,
   fetchHealth,
 } from "./lib/db";
 import { GlassCard } from "./components/GlassCard";
@@ -1217,6 +1218,8 @@ function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [syncTokenCopied, setSyncTokenCopied] = useState(false);
   const [syncUrlCopied, setSyncUrlCopied] = useState(false);
+  const [neonSyncing, setNeonSyncing] = useState(false);
+  const [neonResult, setNeonResult] = useState<string | null>(null);
   const [focus, setFocus] = useState<TrainingFocus>(emptyData.focus);
   const [range, setRange] = useState<DateRange>("30");
 
@@ -3803,8 +3806,46 @@ function App() {
                   </div>
                 </div>
 
-                <div style={{ fontSize: "13px", color: MUTED, marginBottom: "14px", lineHeight: 1.5 }}>
-                  Open <strong style={{ color: TEXT }}>HealthBridge</strong> on your iPhone, paste your sync token and tap Sync. Data updates daily.
+                <div style={{ fontSize: "13px", color: MUTED, marginBottom: "14px", lineHeight: 1.7 }}>
+                  <div style={{ fontWeight: 600, color: TEXT, marginBottom: "6px" }}>HealthBridge setup</div>
+                  <ol style={{ margin: "0 0 10px", paddingLeft: "18px" }}>
+                    <li>Create a free database at <b>neon.tech</b> (GitHub login, no card).</li>
+                    <li>Copy the Neon connection string and paste it into the HealthBridge app on your iPhone.</li>
+                    <li>Tap Sync in HealthBridge — your Apple Health data flows to Neon.</li>
+                    <li>Tap <b>Sync from HealthBridge</b> below to pull it into Progression.</li>
+                  </ol>
+                </div>
+
+                {/* Sync from Neon button */}
+                <div style={{ marginBottom: "14px" }}>
+                  <button
+                    onClick={async () => {
+                      setNeonSyncing(true);
+                      setNeonResult(null);
+                      try {
+                        const { data, error } = await supabase.functions.invoke("sync-from-neon");
+                        if (error) throw error;
+                        setNeonResult(`Synced ${data?.synced ?? 0} days`);
+                      } catch (e: any) {
+                        setNeonResult(`Error: ${e?.message ?? "unknown"}`);
+                      }
+                      setNeonSyncing(false);
+                    }}
+                    disabled={neonSyncing}
+                    style={{
+                      width: "100%", padding: "11px", borderRadius: "10px",
+                      background: c.accent, color: "#fff", border: "none",
+                      fontWeight: 600, fontSize: "14px", cursor: neonSyncing ? "default" : "pointer",
+                      opacity: neonSyncing ? 0.6 : 1,
+                    }}
+                  >
+                    {neonSyncing ? "Syncing…" : "Sync from HealthBridge"}
+                  </button>
+                  {neonResult && (
+                    <div style={{ fontSize: "12px", color: MUTED, marginTop: "6px", textAlign: "center" }}>
+                      {neonResult}
+                    </div>
+                  )}
                 </div>
 
                 {/* Sync token row */}
