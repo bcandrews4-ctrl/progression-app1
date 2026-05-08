@@ -3826,6 +3826,8 @@ function App() {
                         const { data, error } = await supabase.functions.invoke("sync-from-neon");
                         if (error) throw error;
                         setNeonResult(`Synced ${data?.synced ?? 0} days`);
+                        const fresh = await fetchHealth(session!.user.id);
+                        if (fresh.length > 0) setHealthData(fresh);
                       } catch (e: any) {
                         setNeonResult(`Error: ${e?.message ?? "unknown"}`);
                       }
